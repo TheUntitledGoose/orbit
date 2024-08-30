@@ -43,35 +43,41 @@ function calcAcc(ball, balls, acc, int) {
   // let acc=[0,0];
   // for (var baller of balls) {
   //  supposed to be int+1
-  for (var j = 0 /* replace */; j < balls.length; j++) {
-    const baller = balls[j]
+  for (var j = int /* replace */; j < balls.length; j++) {
+    const baller = balls[j];
     var diff = subVec(baller.pos, ball.pos);
-    if (diff[0] == 0 || diff[1] == 0) {
+    if (ball == baller) return;
+    if (diff[0] == 0 && diff[1] == 0) {
       diff = [0,0];
     } 
     else {
       // const dist_act = Math.sqrt( (diff[0]**2 + diff[1]**2) )
-      const dist = Math.max(((Math.sqrt( (diff[0]**2 + diff[1]**2) ))*10),0.01);
-
+      const dist = Math.max(((Math.sqrt( (diff[0]**2 + diff[1]**2) ))),0.01);
+      
       // get normalized vector
       // hypotanous / hyp = 1
       // side / hyp = normalized
-
+      
       const inv_distance = 1/dist;
-
+      
       const normalized_x = diff[0] * inv_distance;
       const normalized_y = diff[1] * inv_distance;
-
+      
       // apply inverse square law to gravity
-
+      
       const inverse_square_dropoff = inv_distance * inv_distance
-
+      
       // const size_factor = 0.1;
-
+      
       // F = ( m_1 * m_2 ) / r^2
+      
+      acc[0] = diff[0] * (baller.mass / ball.mass) * inverse_square_dropoff;
+      acc[1] = diff[1] * (baller.mass / ball.mass) * inverse_square_dropoff;
 
-      acc[0] = diff[0] * (baller.mass / ball.mass) * inverse_square_dropoff
-      acc[1] = diff[1] * (baller.mass / ball.mass) * inverse_square_dropoff
+      baller.acc = [
+        diff[0] * (ball.mass / baller.mass) * inverse_square_dropoff,
+        diff[1] * (ball.mass / baller.mass) * inverse_square_dropoff
+      ]
       // diff[0] = (diff[0] * inverse_square_dropoff * baller.mass / ball.mass)*size_factor;
       // diff[1] = (diff[1] * inverse_square_dropoff * baller.mass / ball.mass)*size_factor;
       // acc=addVec(acc, diff);
@@ -101,7 +107,7 @@ class ball {
 	constructor(x,y,stat=false,mass=1,vel=[0,0],rad=1,clr="white") {
     this.x = x || Math.random() * 500 + 100;
     this.y = y || Math.random() * 500 + 100;
-    // this.history = [];
+    this.history = [];
     
     this.rad = rad;
     this.clr = clr;
@@ -118,6 +124,7 @@ class ball {
     if(this.static) return;
     this.acc = [0,0];
     this.acc = calcAcc(this, balls, this.acc, i);
+    // console.log(this.acc)
 
     this.vel = addVec(this.acc, this.vel);
     
@@ -126,7 +133,10 @@ class ball {
     // this.vel[1] = this.vel[1]/this.maxvel;
 
     this.pos = addVec(this.vel, this.pos);
-    // this.history.push([this.pos, this.curCol, this.lastCol, this.vel]);
+    this.history.push(this.pos);
+    if (this.history.length > 1000) {
+      this.history.shift();
+    }
     
     /*
     // if ( this.pos[0] < 0 ) {
@@ -153,6 +163,20 @@ class ball {
     ctx.fillStyle = this.clr;
     ctx.fill();
 
+    ctx.strokeStyle = "white"
+    if (this.history.length > 0) {
+      ctx.beginPath();
+      ctx.lineWidth = 2
+      ctx.moveTo(this.history[0][0],this.history[0][1])
+      for (let i = 1; i < this.history.length; i++) {
+        ctx.lineTo(
+          this.history[i][0],
+          this.history[i][1]
+        )
+      }
+      ctx.stroke()
+    }
+
     if (this.static) return; 
   }
 }
@@ -164,6 +188,10 @@ const PI = Math.PI;
 const TWO_PI = Math.PI*2;
 
 const ball_1 = [windowWidth/2,windowHeight/2]
+
+function new_ball(...args) {
+  balls.push(new ball(...args))
+}
 
 function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_vel=[0,0]) {
   const ball_1 = position;
@@ -216,14 +244,21 @@ function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_ve
   balls.push(new ball(ball_1[0],ball_1[1], false, core_gravity, core_vel, 3, "white"));
 }
 
-make_galaxy(
-  50,  // radius
-  300,  // amount
-  [windowWidth/2, windowHeight/2], // position
-  50, // min distance of inner ring
-  50, // core gravity
-  [0,0] //  // core velocity
-)
+// make_galaxy(
+//   50,  // radius
+//   300,  // amount
+//   [windowWidth/2, windowHeight/2], // position
+//   50, // min distance of inner ring
+//   50, // core gravity
+//   [0,0] //  // core velocity
+// )
+
+// balls.push(new ball(100, windowHeight/2, false, 1, [.5,0], 3, "white"));
+// balls.push(new ball(200, windowHeight/2, false, 1, [0,0], 3, "white"));
+new_ball(windowWidth/2-50, windowHeight/2, false, 10, [0.0,0.5], 10, "white")
+new_ball(windowWidth/2+50, windowHeight/2, false, 10, [0.0,-.5],  10, "white")
+// new_ball(300, windowHeight/2, false, 1, [0,0],  3, "white")
+
 
 // make_galaxy(
 //   50,  // radius
@@ -280,7 +315,7 @@ function visualize(grid_res = 50) {
 
 }
 
-// visualize( 15 )
+// visualize( 25 )
 
 function animate() {
 	ctx.clearRect(0, 0, windowWidth, windowHeight);
@@ -299,6 +334,7 @@ function animate() {
     vector.draw(calcAcc(vector, balls, vector.acc, -1))
 
   }
+  window.requestAnimationFrame(animate);
 }
 
 /*
@@ -338,7 +374,8 @@ function animate() {
 // });
 */
 
-setInterval(animate, 10);
+// setInterval(animate, 1);
+window.requestAnimationFrame(animate);
 
 </script>
 </body></html>
