@@ -1,0 +1,353 @@
+
+<!-- saved from url=(0030)https://main.shadir.com/orbit/ -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+  <link rel="preconnect" href="https://fonts.googleapis.com/">
+  <link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin="">
+  <link href="./main.shadir.com_files/css2" rel="stylesheet">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com/">
+  <link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin="">
+  <link href="./main.shadir.com_files/css2(1)" rel="stylesheet">
+  <style>
+    body {
+      background-color: black;
+      overflow: hidden;
+    }
+  </style>
+</head>
+  <!-- <button onclick="location.href = `https://roflcopterfinal.ytmnd.com`">Best website</button> -->
+  <body><canvas id="myCanvas" width="1280" height="607" style="filter: drop-shadow(0px 0px 350px white);"></canvas> 
+<script> 
+const c = document.getElementById("myCanvas");
+const ctx = c.getContext("2d");
+
+let mousedown = false;
+let scrol = 1;
+
+let windowWidth = window.innerWidth;
+let windowHeight = window.innerHeight;
+
+c.height = windowHeight;
+c.width = windowWidth;
+
+function clampFunc(val, min, max) {
+    return Math.min( Math.max(val, min), max );
+}
+
+function addVec(vec1, vec2) {
+  	var retVec = [];
+	retVec[0] = vec1[0] + vec2[0];
+    retVec[1] = vec1[1] + vec2[1];
+  	return retVec;
+}
+
+function subVec(vec1, vec2) {
+  	var retVec = [];
+	retVec[0] = vec1[0] - vec2[0];
+    retVec[1] = vec1[1] - vec2[1];
+  	return retVec;
+}
+
+function calcAcc(ball, balls, acc, int) {
+  // let acc=[0,0];
+  // for (var baller of balls) {
+  //  supposed to be int+1
+  for (var j = 0 /* replace */; j < balls.length; j++) {
+    const baller = balls[j]
+    var diff = subVec(baller.pos, ball.pos);
+    if (diff[0] == 0 || diff[1] == 0) {
+      diff = [0,0];
+    } 
+    else {
+      // const dist_act = Math.sqrt( (diff[0]**2 + diff[1]**2) )
+      const dist = Math.max(((Math.sqrt( (diff[0]**2 + diff[1]**2) ))*10),0.01);
+
+      // get normalized vector
+      // hypotanous / hyp = 1
+      // side / hyp = normalized
+
+      const inv_distance = 1/dist;
+
+      const normalized_x = diff[0] * inv_distance;
+      const normalized_y = diff[1] * inv_distance;
+
+      // apply inverse square law to gravity
+
+      const inverse_square_dropoff = inv_distance * inv_distance
+
+      // const size_factor = 0.1;
+
+      // F = ( m_1 * m_2 ) / r^2
+
+      acc[0] = diff[0] * (baller.mass / ball.mass) * inverse_square_dropoff
+      acc[1] = diff[1] * (baller.mass / ball.mass) * inverse_square_dropoff
+      // diff[0] = (diff[0] * inverse_square_dropoff * baller.mass / ball.mass)*size_factor;
+      // diff[1] = (diff[1] * inverse_square_dropoff * baller.mass / ball.mass)*size_factor;
+      // acc=addVec(acc, diff);
+    }
+  }
+  
+  return acc;
+}
+
+function collision(p1x, p1y, r1, p2x, p2y, r2) {
+  var a;
+  var x;
+  var y;
+
+  a = r1 + r2;
+  x = p1x - p2x;
+  y = p1y - p2y;
+
+  if (a > Math.sqrt((x * x) + (y * y))) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+class ball {
+	constructor(x,y,stat=false,mass=1,vel=[0,0],rad=1,clr="white") {
+    this.x = x || Math.random() * 500 + 100;
+    this.y = y || Math.random() * 500 + 100;
+    // this.history = [];
+    
+    this.rad = rad;
+    this.clr = clr;
+    
+    this.mass = mass;
+    this.static = stat;
+    this.pos = [this.x, this.y];
+    this.vel = vel;
+    this.acc = [0, 0];
+    this.maxvel = 1;
+  }
+  
+  update(i) {
+    if(this.static) return;
+    this.acc = [0,0];
+    this.acc = calcAcc(this, balls, this.acc, i);
+
+    this.vel = addVec(this.acc, this.vel);
+    
+    // clamp
+    // this.vel[0] = this.vel[0]/this.maxvel;
+    // this.vel[1] = this.vel[1]/this.maxvel;
+
+    this.pos = addVec(this.vel, this.pos);
+    // this.history.push([this.pos, this.curCol, this.lastCol, this.vel]);
+    
+    /*
+    // if ( this.pos[0] < 0 ) {
+    //     this.vel[0]=-this.vel[0];
+    // }
+    // if ( this.pos[0] > windowWidth ) {
+    //     this.vel[0]=-this.vel[0];
+    // }
+    // if ( this.pos[1] < 0 ) {
+    //     this.vel[1]=-this.vel[1];
+    // }
+    // if ( this.pos[1] > windowHeight ) {
+    //     this.vel[1]=-this.vel[1];
+    // }
+    */
+    this.x = this.pos[0];
+    this.y = this.pos[1];
+    this.lastCol = this.curCol;
+  }
+  	
+  draw() {
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.rad, 0, 2 * Math.PI);
+    ctx.fillStyle = this.clr;
+    ctx.fill();
+
+    if (this.static) return; 
+  }
+}
+
+let balls = [];
+
+const radius = 200
+const PI = Math.PI;
+const TWO_PI = Math.PI*2;
+
+const ball_1 = [windowWidth/2,windowHeight/2]
+
+function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_vel=[0,0]) {
+  const ball_1 = position;
+  // const central_gravity = 100
+    // const min = min;
+
+  for (var i = 0; i < size; i++) {
+
+    // from 0-2pi around circle, get normal vector, multiply by random distance.
+    const radian_angle = Math.random()*TWO_PI;
+    const angle = [
+      Math.cos(radian_angle),
+      Math.sin(radian_angle)
+    ]
+    // Get the random distance
+    const circle_distance = Math.random()*radius+50
+    // Get vector offset
+    const offset = [
+      angle[0]*circle_distance,
+      angle[1]*circle_distance,
+    ]
+
+    const init_speed = 1.25
+
+    // v = sqrt( gravity * radius )
+    // radius = circle_distance
+    // gravity = 100
+    // const v = Math.sqrt( central_gravity/100 * circle_distance ) / radius
+
+    balls.push(new ball(
+      offset[0]+ball_1[0],
+      offset[1]+ball_1[1],
+      false,
+      1,
+      [
+        init_speed*(Math.sin(radian_angle))*(radius/circle_distance),
+        init_speed*-(Math.cos(radian_angle))*(radius/circle_distance),
+        // v*Math.cos(radian_angle),
+        // v*Math.sin(radian_angle),
+      ],
+      1.1,
+      // #4c8084
+      // 60, 112, 118
+      // `rgba(${Math.random()*20+55}, ${Math.random()*30+110}, ${Math.random()*30+115}, 0.5)`
+      `rgba(255,255,255, 0.5)`
+      // '#'+(Math.random()*0xFFFFFF<<0).toString(16)
+    ));
+  }
+  //                   x,           y ,   stat,   mass,          vel,    rad, clr
+  balls.push(new ball(ball_1[0],ball_1[1], false, core_gravity, core_vel, 3, "white"));
+}
+
+make_galaxy(
+  50,  // radius
+  300,  // amount
+  [windowWidth/2, windowHeight/2], // position
+  50, // min distance of inner ring
+  50, // core gravity
+  [0,0] //  // core velocity
+)
+
+// make_galaxy(
+//   50,  // radius
+//   300,  // amount
+//   [windowWidth/4, windowHeight/2], // position
+//   50, // min distance of inner ring
+//   100, // core gravity
+//   [.01,.01] // core velocity
+// )
+
+
+class visual {
+  constructor(x,y) {
+    this.pos = [x,y]
+
+    // needed for calcAcc
+    this.mass = 1;
+    this.acc = [0,0]
+  }
+
+  draw(vector) {
+    ctx.strokeStyle = "white";
+    vector[0] = Math.min(vector[0], .01)
+    vector[1] = Math.min(vector[1], .01)
+    // ctx.lineWidth = 15;
+    // console.log(vector)
+    ctx.beginPath();
+    ctx.moveTo(this.pos[0], this.pos[1]);
+    const res = 500
+    ctx.lineTo((vector[0]*res)+this.pos[0],(vector[1]*res)+this.pos[1]);
+    ctx.stroke();
+  }
+}
+
+let visual_vectors = []
+
+function visualize(grid_res = 50) {
+  // make a loop
+  // in loop, go in grid over whole canvas
+  // for each "grid cell", draw a vector where the accelaration goes
+  // const grid_res = res;
+  for (let y = 0; y < windowHeight/grid_res; y++) {
+    for (let x = 0; x < windowWidth/grid_res; x++) {
+      
+      visual_vectors.push(
+        new visual(
+          x*grid_res,
+          y*grid_res
+        )
+      )
+
+    }    
+  }
+
+}
+
+// visualize( 15 )
+
+function animate() {
+	ctx.clearRect(0, 0, windowWidth, windowHeight);
+  
+  // var big = balls.find((hole) => hole.rad == 150);
+
+  for (var i = 0; i < balls.length; i++) {
+    const baller = balls[i];
+    baller.update(i);
+    baller.draw();
+  }
+
+  for (let i = 0; i < visual_vectors.length; i++) {
+    const vector = visual_vectors[i];
+    
+    vector.draw(calcAcc(vector, balls, vector.acc, -1))
+
+  }
+}
+
+/*
+// c.addEventListener("wheel", function(e) {
+// 	scrol += -e.deltaY*0.0005;
+//   ctx.translate(windowWidth/2,windowHeight/2);
+//   ctx.scale(scrol,scrol);
+//   ctx.translate(-windowWidth/2,-windowHeight/2);
+//   scrol = 1;
+//   deltaY 100 DOWN, -100 UP 
+// });
+
+// let mx, my;
+// let init;
+
+// c.addEventListener('mousedown', function (e) {
+  
+//   	mousedown = true;
+  
+//   	init = [e.screenX,e.screenY];
+//   	mx = e.screenX;
+//   	my = e.screenY;
+// });
+
+// c.addEventListener('mouseup', function (e) {
+// 	mousedown = false;
+// });
+
+// c.addEventListener('mousemove', function (e) {
+  
+//   	if (!mousedown) return; 
+//   	mx = e.screenX;
+//   	my = e.screenY;
+//   	var vec = [mx-init[0],my-init[1]];
+  
+//   	ctx.translate(vec[0]/100,vec[1]/100);
+// });
+*/
+
+setInterval(animate, 10);
+
+</script>
+</body></html>
