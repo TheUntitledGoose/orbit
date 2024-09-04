@@ -34,25 +34,26 @@ function addVec(vec1, vec2) {
 
 function subVec(vec1, vec2) {
   	var retVec = [];
-	retVec[0] = vec1[0] - vec2[0];
+	  retVec[0] = vec1[0] - vec2[0];
     retVec[1] = vec1[1] - vec2[1];
   	return retVec;
 }
 
-function calcAcc(ball, balls, acc, int) {
+function calcAcc(ball, int) {
   // let acc=[0,0];
   // for (var baller of balls) {
   //  supposed to be int+1
   for (var j = int+1 /* replace */; j < balls.length; j++) {
     const baller = balls[j];
-    ball.acc = [0,0];
+    // ball.acc = [0,0];
+    // baller.acc = [0,0];
     // console.log(ball, baller)
-    if (ball == baller) continue;
+    // if (ball == baller) continue;
     var diff = subVec(baller.pos, ball.pos);
 
     // const dist_act = Math.sqrt( (diff[0]**2 + diff[1]**2) )
-    const distance_factor = 10
-    const dist = Math.max(((Math.sqrt( (diff[0]**2 + diff[1]**2) )*distance_factor  )),0.01);
+    const distance_factor = 1
+    const dist = Math.max(((Math.sqrt( (diff[0]**2 + diff[1]**2) ))*distance_factor  ),1);
     
     // get normalized vector
     // hypotanous / hyp = 1
@@ -72,36 +73,31 @@ function calcAcc(ball, balls, acc, int) {
     // F = g * ( m_1 * m_2 ) / r^2
     // const g = 6.637*(10**-11)
 
+    if (!ball.static) {
+      ball.acc[0] = normalized_x * ((baller.mass * inverse_square_dropoff));
+      ball.acc[1] = normalized_y * ((baller.mass * inverse_square_dropoff));
 
-    ball.acc[0] = diff[0] * ((baller.mass * ball.mass) * inverse_square_dropoff);
-    ball.acc[1] = diff[1] * ((baller.mass * ball.mass) * inverse_square_dropoff);
+      ball.vel = addVec(ball.acc, ball.vel);
+      // ball.pos = addVec(ball.vel, ball.pos);
+    }
 
-    baller.acc = [
-      -diff[0] * ((ball.mass * baller.mass) * inverse_square_dropoff),
-      -diff[1] * ((ball.mass * baller.mass) * inverse_square_dropoff)
-    ]
+    if (!baller.static) {
+      baller.acc[0] = -normalized_x * (ball.mass * inverse_square_dropoff);
+      baller.acc[1] = -normalized_x * (ball.mass * inverse_square_dropoff);
+
+      baller.vel = addVec(baller.acc, baller.vel);
+      // baller.pos = addVec(baller.vel, baller.pos);
+    }
+
+
+
+
     // diff[0] = (diff[0] * inverse_square_dropoff * baller.mass / ball.mass)*size_factor;
     // diff[1] = (diff[1] * inverse_square_dropoff * baller.mass / ball.mass)*size_factor;
     // acc=addVec(acc, diff);
   }
   
   // return acc;
-}
-
-function collision(p1x, p1y, r1, p2x, p2y, r2) {
-  var a;
-  var x;
-  var y;
-
-  a = r1 + r2;
-  x = p1x - p2x;
-  y = p1y - p2y;
-
-  if (a > Math.sqrt((x * x) + (y * y))) {
-    return true;
-  } else {
-    return false;
-  }
 }
 
 class ball {
@@ -119,16 +115,17 @@ class ball {
     this.vel = vel;
     this.acc = [0, 0];
     this.maxvel = 1;
+
+    this.history_toggle = false;
+    this.history_length = 50
   }
   
   update(i) {
-    if(this.static) return;
+    // if(this.static) return;
     // this.acc = [0,0];
-    calcAcc(this, balls, this.acc, i);
-    // console.log(this.acc)
-    // console.log(this.acc)
+    calcAcc(this, i);
 
-    this.vel = addVec(this.acc, this.vel);
+    // this.vel = addVec(this.acc, this.vel);
     
     // clamp
     // this.vel[0] = this.vel[0]/this.maxvel;
@@ -136,7 +133,7 @@ class ball {
 
     this.pos = addVec(this.vel, this.pos);
     this.history.push(this.pos);
-    if (this.history.length > 50) {
+    if (this.history.length > this.history_length) {
       this.history.shift();
     }
     
@@ -154,18 +151,18 @@ class ball {
     //     this.vel[1]=-this.vel[1];
     // }
     */
-    this.x = this.pos[0];
-    this.y = this.pos[1];
-    this.lastCol = this.curCol;
+    // this.x = this.pos[0];
+    // this.y = this.pos[1];
+    // this.lastCol = this.curCol;
   }
   	
   draw() {
     ctx.beginPath();
-    ctx.arc(this.x, this.y, this.rad, 0, 2 * Math.PI);
+    ctx.arc(this.pos[0], this.pos[1], this.rad, 0, 2 * Math.PI);
     ctx.fillStyle = this.clr;
     ctx.fill();
 
-    if (true) return
+    if (!this.history_toggle) return
     ctx.strokeStyle = "white"
     if (this.history.length > 0) {
       ctx.beginPath();
@@ -180,7 +177,7 @@ class ball {
       ctx.stroke()
     }
 
-    if (this.static) return; 
+    // if (this.static) return; 
   }
 }
 
@@ -196,10 +193,8 @@ function new_ball(...args) {
   balls.push(new ball(...args))
 }
 
-function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_vel=[0,0]) {
+function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_vel=[0,0], static=false) {
   const ball_1 = position;
-  // const central_gravity = 100
-    // const min = min;
 
   for (var i = 0; i < size; i++) {
 
@@ -224,14 +219,17 @@ function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_ve
     // gravity = 100
     // const v = Math.sqrt( central_gravity/100 * circle_distance ) / radius
 
+    // v = sqrt ( G * Mass / Rad )
+    const grav = Math.sqrt((core_gravity/circle_distance))
+
     balls.push(new ball(
       offset[0]+ball_1[0],
       offset[1]+ball_1[1],
       false,
-      1,
+      0,
       [
-        init_speed*(Math.sin(radian_angle))*(radius/circle_distance),
-        init_speed*-(Math.cos(radian_angle))*(radius/circle_distance),
+        ((Math.sin(radian_angle))) *grav,
+        (-(Math.cos(radian_angle))) *grav,
         // v*Math.cos(radian_angle),
         // v*Math.sin(radian_angle),
       ],
@@ -244,29 +242,31 @@ function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_ve
     ));
   }
   //                   x,           y ,   stat,   mass,          vel,    rad, clr
-  balls.push(new ball(ball_1[0],ball_1[1], false, core_gravity, core_vel, 3, "white"));
+  balls.push(new ball(ball_1[0],ball_1[1], static, core_gravity, core_vel, 3, "white"));
 }
 
 make_galaxy(
-  50,  // radius
-  500,  // amount
+  100,  // radius
+  400,  // amount
   [windowWidth/2, windowHeight/2], // position
-  50, // min distance of inner ring
-  10, // core gravity
-  [0,0] //  // core velocity
+  10, // min distance of inner ring
+  500, // core gravity
+  [0,0], //  // core velocity
+  true // static
 )
 
-make_galaxy(
-  50,  // radius
-  500,  // amount
-  [windowWidth/4, windowHeight/2], // position
-  50, // min distance of inner ring
-  10, // core gravity
-  [.15,-.05] //  // core velocity
-)
+// make_galaxy(
+//   50,  // radius
+//   500,  // amount
+//   [windowWidth/4, windowHeight/2], // position
+//   50, // min distance of inner ring
+//   500, // core gravity
+//   [.15,-.2], //  // core velocity
+//   false
+// )
 
-// new_ball(windowWidth/2-50, windowHeight/2, false, 10, [0.0,0.5], 10, "white")
-// new_ball(windowWidth/2+50, windowHeight/2, false, 10, [0.0,-.5],  10, "white")
+// new_ball(windowWidth/2-50, windowHeight/2, false, 100, [0.0,-.5], 10, "white")
+// new_ball(windowWidth/2+50, windowHeight/2, false, 100, [0.0, .5],  10, "white")
 
 // new_ball(300, windowHeight/2, false, 1, [0,0],  3, "white")
 
@@ -328,9 +328,6 @@ function visualize(grid_res = 50) {
 
 // visualize( 25 )
 
-// dummy ball for balls array
-// 100, windowHeight/2, false, 1, [.5,0], 3, "white"
-// new_ball(0,0,false,1,[0,0],0,"black")
 function animate() {
 	ctx.clearRect(0, 0, windowWidth, windowHeight);
   
@@ -338,9 +335,9 @@ function animate() {
 
   // console.log("start")
   for (var i = 0; i < balls.length; i++) {
-    const baller = balls[i];
-    baller.update(i);
-    baller.draw();
+    const ball = balls[i];
+    ball.update(i);
+    ball.draw();
   }
 
   for (let i = 0; i < visual_vectors.length; i++) {
@@ -388,6 +385,31 @@ function animate() {
 //   	ctx.translate(vec[0]/100,vec[1]/100);
 // });
 */
+
+let mouse = false;
+let mx = 0;
+let my = 0;
+document.addEventListener('mousedown', (e) => {
+  mx = e.x;
+  my = e.y;
+  if (!mouse) {
+    balls.push(new ball(mx-7,my-7, true, 50, [0,0], 5, "white"));
+    mouse = true;
+  }
+})
+
+document.addEventListener('mousemove', (e) => {
+  if (mouse) {
+    mx = e.x;
+    my = e.y;
+    balls[balls.length-1].pos = [mx-7,my-7];
+  }
+})
+
+document.addEventListener('mouseup', (e) => {
+  if (mouse) balls.pop();
+  mouse = false;
+})
 
 // setInterval(animate, 1);
 window.requestAnimationFrame(animate);
