@@ -4,6 +4,7 @@
     body {
       background-color: black;
       overflow: hidden;
+      margin: 0;
     }
   </style>
 </head>
@@ -12,7 +13,6 @@
 const c = document.getElementById("myCanvas");
 const ctx = c.getContext("2d");
 
-let mousedown = false;
 let scrol = 1;
 
 let windowWidth = window.innerWidth;
@@ -20,10 +20,6 @@ let windowHeight = window.innerHeight;
 
 c.height = windowHeight;
 c.width = windowWidth;
-
-function clampFunc(val, min, max) {
-    return Math.min( Math.max(val, min), max );
-}
 
 function addVec(vec1, vec2) {
   	var retVec = [];
@@ -40,10 +36,7 @@ function subVec(vec1, vec2) {
 }
 
 function calcAcc(ball, int) {
-  // let acc=[0,0];
-  // for (var baller of balls) {
-  //  supposed to be int+1
-  for (var j = int+1 /* replace */; j < balls.length; j++) {
+  for (var j = int+1; j < balls.length; j++) {
     const baller = balls[j];
     // ball.acc = [0,0];
     // baller.acc = [0,0];
@@ -68,36 +61,23 @@ function calcAcc(ball, int) {
     
     const inverse_square_dropoff = inv_distance * inv_distance
     
-    // const size_factor = 0.1;
-    
     // F = g * ( m_1 * m_2 ) / r^2
     // const g = 6.637*(10**-11)
 
     if (!ball.static) {
-      ball.acc[0] = normalized_x * ((baller.mass * inverse_square_dropoff));
-      ball.acc[1] = normalized_y * ((baller.mass * inverse_square_dropoff));
+      ball.acc[0] = normalized_x * (baller.mass * inverse_square_dropoff);
+      ball.acc[1] = normalized_y * (baller.mass * inverse_square_dropoff);
 
       ball.vel = addVec(ball.acc, ball.vel);
-      // ball.pos = addVec(ball.vel, ball.pos);
     }
 
     if (!baller.static) {
       baller.acc[0] = -normalized_x * (ball.mass * inverse_square_dropoff);
-      baller.acc[1] = -normalized_x * (ball.mass * inverse_square_dropoff);
+      baller.acc[1] = -normalized_y * (ball.mass * inverse_square_dropoff);
 
       baller.vel = addVec(baller.acc, baller.vel);
-      // baller.pos = addVec(baller.vel, baller.pos);
     }
-
-
-
-
-    // diff[0] = (diff[0] * inverse_square_dropoff * baller.mass / ball.mass)*size_factor;
-    // diff[1] = (diff[1] * inverse_square_dropoff * baller.mass / ball.mass)*size_factor;
-    // acc=addVec(acc, diff);
   }
-  
-  // return acc;
 }
 
 class ball {
@@ -114,7 +94,6 @@ class ball {
     this.pos = [this.x, this.y];
     this.vel = vel;
     this.acc = [0, 0];
-    this.maxvel = 1;
 
     this.history_toggle = false;
     this.history_length = 50
@@ -126,10 +105,6 @@ class ball {
     calcAcc(this, i);
 
     // this.vel = addVec(this.acc, this.vel);
-    
-    // clamp
-    // this.vel[0] = this.vel[0]/this.maxvel;
-    // this.vel[1] = this.vel[1]/this.maxvel;
 
     this.pos = addVec(this.vel, this.pos);
     this.history.push(this.pos);
@@ -176,8 +151,6 @@ class ball {
       }
       ctx.stroke()
     }
-
-    // if (this.static) return; 
   }
 }
 
@@ -208,8 +181,8 @@ function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_ve
     const circle_distance = Math.random()*radius+50
     // Get vector offset
     const offset = [
-      angle[0]*circle_distance,
-      angle[1]*circle_distance,
+      angle[0]*(circle_distance+min),
+      angle[1]*(circle_distance+min),
     ]
 
     const init_speed = 1
@@ -246,11 +219,31 @@ function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_ve
 }
 
 make_galaxy(
-  100,  // radius
-  400,  // amount
-  [windowWidth/2, windowHeight/2], // position
-  10, // min distance of inner ring
+  200,  // radius
+  0,  // amount
+  [windowWidth/2+100, windowHeight/2], // position
+  100, // min distance of inner ring
   500, // core gravity
+  [0,1], //  // core velocity
+  false // static
+)
+
+make_galaxy(
+  200,  // radius
+  0,  // amount
+  [windowWidth/2-100, windowHeight/2], // position
+  100, // min distance of inner ring
+  500, // core gravity
+  [0,-1], //  // core velocity
+  false // static
+)
+
+make_galaxy(
+  200,  // radius
+  500,  // amount
+  [windowWidth/2, windowHeight/2], // position
+  500, // min distance of inner ring
+  150, // core gravity
   [0,0], //  // core velocity
   true // static
 )
@@ -329,11 +322,10 @@ function visualize(grid_res = 50) {
 // visualize( 25 )
 
 function animate() {
-	ctx.clearRect(0, 0, windowWidth, windowHeight);
-  
-  // var big = balls.find((hole) => hole.rad == 150);
+  ctx.fillStyle = 'rgba(0,0,0,0.1)'
+	ctx.fillRect(0, 0, windowWidth, windowHeight);
+	// ctx.clearRect(0, 0, windowWidth, windowHeight);
 
-  // console.log("start")
   for (var i = 0; i < balls.length; i++) {
     const ball = balls[i];
     ball.update(i);
@@ -348,43 +340,6 @@ function animate() {
   }
   window.requestAnimationFrame(animate);
 }
-
-/*
-// c.addEventListener("wheel", function(e) {
-// 	scrol += -e.deltaY*0.0005;
-//   ctx.translate(windowWidth/2,windowHeight/2);
-//   ctx.scale(scrol,scrol);
-//   ctx.translate(-windowWidth/2,-windowHeight/2);
-//   scrol = 1;
-//   deltaY 100 DOWN, -100 UP 
-// });
-
-// let mx, my;
-// let init;
-
-// c.addEventListener('mousedown', function (e) {
-  
-//   	mousedown = true;
-  
-//   	init = [e.screenX,e.screenY];
-//   	mx = e.screenX;
-//   	my = e.screenY;
-// });
-
-// c.addEventListener('mouseup', function (e) {
-// 	mousedown = false;
-// });
-
-// c.addEventListener('mousemove', function (e) {
-  
-//   	if (!mousedown) return; 
-//   	mx = e.screenX;
-//   	my = e.screenY;
-//   	var vec = [mx-init[0],my-init[1]];
-  
-//   	ctx.translate(vec[0]/100,vec[1]/100);
-// });
-*/
 
 let mouse = false;
 let mx = 0;
@@ -411,7 +366,6 @@ document.addEventListener('mouseup', (e) => {
   mouse = false;
 })
 
-// setInterval(animate, 1);
 window.requestAnimationFrame(animate);
 
 </script>
