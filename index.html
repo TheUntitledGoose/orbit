@@ -35,19 +35,49 @@ function subVec(vec1, vec2) {
   	return retVec;
 }
 
-const distance_factor = 1
+const distance_factor = 1;
+const g = 6.637*(10**-11);
+// const g = 6.637*(10**-4);
+// const g = 0.001;
+
 function calcAcc(ball, int) {
   for (var j = int+1; j < balls.length; j++) {
     const baller = balls[j];
+    // if (baller.static) continue;
     // ball.acc = [0,0];
     // baller.acc = [0,0];
     // console.log(ball, baller)
     // if (ball == baller) continue;
     var diff = subVec(baller.pos, ball.pos);
-
-    // const dist_act = Math.sqrt( (diff[0]**2 + diff[1]**2) )
-    const dist = Math.max(((Math.sqrt( (diff[0]**2 + diff[1]**2) ))*distance_factor  ),100);
     
+    // const dist_act = Math.sqrt( (diff[0]**2 + diff[1]**2) )
+    // const dist = Math.max(((Math.sqrt( (diff[0]**2 + diff[1]**2) ))*distance_factor  ),1);
+    const dist = (Math.sqrt( (diff[0]**2 + diff[1]**2) ));
+    
+    // if (dist < ball.rad + baller.rad) {
+    //   // remove ball
+    //   ball.static = true;
+    //   const ball_rad = ball.rad;
+    //   const ball_mass = ball.mass;
+    //   const ball_vel = ball.vel;
+    //   ball.rad = 0;
+    //   ball.mass = 0;
+    //   ball.vel = [0,0];
+    //   // Area = pi * r^2
+    //   // Each ball (rad^2 * pi) * 2 = Area = pi*r^2
+    //   // pi cancel out
+    //   // rad_1^2 + rad_2^2 = r^2
+    //   // Math.sqrt(ball.rad**2 + baller.rad**2) = Area
+    //   baller.rad = Math.sqrt( ball_rad**2 + baller.rad**2 )
+      
+    //   baller.mass += ball_mass;
+    //   // add smashing velocities
+    //   // have the smaller one affect big less
+    //   // ball.vel[0] = baller.
+    //   baller.acc = addVec(baller.acc, ball_vel);
+    //   continue
+    // }
+
     // get normalized vector
     // hypotanous / hyp = 1
     // side / hyp = normalized
@@ -65,15 +95,15 @@ function calcAcc(ball, int) {
     // const g = 6.637*(10**-11)
 
     if (!ball.static) {
-      ball.acc[0] = normalized_x * (baller.mass * inverse_square_dropoff);
-      ball.acc[1] = normalized_y * (baller.mass * inverse_square_dropoff);
+      ball.acc[0] = normalized_x * g * (baller.mass * inverse_square_dropoff);
+      ball.acc[1] = normalized_y * g * (baller.mass * inverse_square_dropoff);
 
       ball.vel = addVec(ball.acc, ball.vel);
     }
 
     if (!baller.static) {
-      baller.acc[0] = -normalized_x * (ball.mass * inverse_square_dropoff);
-      baller.acc[1] = -normalized_y * (ball.mass * inverse_square_dropoff);
+      baller.acc[0] = -normalized_x * g * (ball.mass * inverse_square_dropoff);
+      baller.acc[1] = -normalized_y * g * (ball.mass * inverse_square_dropoff);
 
       baller.vel = addVec(baller.acc, baller.vel);
     }
@@ -193,7 +223,7 @@ function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_ve
     // const v = Math.sqrt( central_gravity/100 * circle_distance ) / radius
 
     // v = sqrt ( G * Mass / Rad )
-    const grav = Math.sqrt(core_gravity/(circle_distance+min))/distance_factor**2
+    const grav = Math.sqrt(g*core_gravity/(circle_distance+min))
 
     balls.push(new ball(
       offset[0]+ball_1[0],
@@ -201,8 +231,8 @@ function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_ve
       false,
       .1,
       [
-        ((Math.sin(radian_angle)))*grav,
-        (-(Math.cos(radian_angle)))*grav,
+        ((Math.sin(radian_angle)))*grav+core_vel[0],
+        (-(Math.cos(radian_angle)))*grav+core_vel[1],
       ],
       1.1,
       `rgba(255,255,255, 0.5)`
@@ -231,9 +261,7 @@ function make_ball(radius, size, position, min=0, core_gravity = 100, core_vel=[
       offset[1]+ball_1[1],
       false,
       1,
-      [
-        0,0
-      ],
+      core_vel,
       1.1,
       `rgba(255,255,255, 0.5)`
     ));
@@ -242,35 +270,35 @@ function make_ball(radius, size, position, min=0, core_gravity = 100, core_vel=[
   // balls.push(new ball(ball_1[0],ball_1[1], static, core_gravity, core_vel, 3, "white"));
 }
 
-// make_galaxy(
-//   200,  // radius
+make_galaxy(
+  200,  // radius
+  500,  // amount
+  [windowWidth/2, windowHeight/2], // position
+  100, // min distance of inner ring
+  10**11, // core gravity
+  [0,0], //  // core velocity
+  true // static
+)
+
+// make_ball(
+//   500,  // radius
 //   500,  // amount
-//   [windowWidth/2, windowHeight/2], // position
-//   100, // min distance of inner ring
+//   [windowWidth/4*3, windowHeight/2], // position
+//   0, // min distance of inner ring
 //   1000, // core gravity
 //   [0,0], //  // core velocity
 //   true // static
 // )
 
-make_ball(
-  500,  // radius
-  500,  // amount
-  [windowWidth/4*3, windowHeight/2], // position
-  0, // min distance of inner ring
-  1000, // core gravity
-  [0,0], //  // core velocity
-  true // static
-)
-
-make_ball(
-  500,  // radius
-  500,  // amount
-  [windowWidth/4, windowHeight/2], // position
-  0, // min distance of inner ring
-  1000, // core gravity
-  [0,0], //  // core velocity
-  true // static
-)
+// make_ball(
+//   500,  // radius
+//   500,  // amount
+//   [windowWidth/4, windowHeight/2], // position
+//   0, // min distance of inner ring
+//   1000, // core gravity
+//   [0,0], //  // core velocity
+//   true // static
+// )
 
 // make_galaxy(
 //   200,  // radius
@@ -302,15 +330,15 @@ make_ball(
 //   true // static
 // )
 
-// make_galaxy(
-//   50,  // radius
-//   500,  // amount
-//   [windowWidth/4, windowHeight/2], // position
-//   50, // min distance of inner ring
-//   500, // core gravity
-//   [.15,-.2], //  // core velocity
-//   false
-// )
+make_galaxy(
+  50,  // radius
+  500,  // amount
+  [windowWidth/4, windowHeight/2], // position
+  1, // min distance of inner ring
+  10**11, // core gravity
+  [.25,-.01], //  // core velocity
+  false
+)
 
 // new_ball(windowWidth/2-50, windowHeight/2, false, 100, [0.0,-.5], 10, "white")
 // new_ball(windowWidth/2+50, windowHeight/2, false, 100, [0.0, .5],  10, "white")
@@ -402,7 +430,7 @@ document.addEventListener('mousedown', (e) => {
   mx = e.x;
   my = e.y;
   if (!mouse) {
-    balls.push(new ball(mx,my, true, 100, [0,0], 5, "white"));
+    balls.push(new ball(mx,my, true, 10**11, [0,0], 5, "white"));
     mouse = true;
   }
 })
