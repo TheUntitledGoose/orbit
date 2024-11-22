@@ -8,8 +8,27 @@
     }
   </style>
 </head>
-  <body><canvas id="myCanvas" width="1280" height="607" style="filter: drop-shadow(0px 0px 350px white);"></canvas> 
-<script> 
+  <body><canvas id="myCanvas" width="1280" height="607"></canvas> 
+<script src="imgui.js"></script>
+<script type="module">
+
+import { ImGui } from "./imgui.js"
+
+let imgui = new ImGui(200, 250, 400, 100);
+let earth_l_checkbox = imgui.checkbox("Show Label of Earth", false);
+let earth_v_checkbox = imgui.checkbox("Show Velocity of Earth", true);
+let earth_a_checkbox = imgui.checkbox("Show Acceleration of Earth", true);
+let earth_spawn = imgui.button("Spawn Earth");
+let earth_spawn_nonCirc = imgui.button("Spawn Earth: Non-Circular Orbit");
+
+imgui.init();
+
+
+document.addEventListener("contextmenu", function (e) { 
+  e.preventDefault(); 
+})
+
+
 const c = document.getElementById("myCanvas");
 const ctx = c.getContext("2d");
 
@@ -35,60 +54,40 @@ function subVec(vec1, vec2) {
   	return retVec;
 }
 
+function mulVector(vec1, vec2) {
+  return [vec1[0] * vec2[0], vec1[1] * vec2[1]]
+}
+
 const distance_factor = 1;
-const g = 6.637*(10**-11);
+const g = 6.637*(10**-13);
+const small_body_mass = 10**9;
+const coeff = 1;
+// const g = 6.637*(10**-11); // real
 // const g = 6.637*(10**-4);
 // const g = 0.001;
 
-function calcAcc(ball, int) {
+function calcAcc(ball_, int) {
   for (var j = int+1; j < balls.length; j++) {
     const baller = balls[j];
-    // if (baller.static) continue;
-    // ball.acc = [0,0];
-    // baller.acc = [0,0];
-    // console.log(ball, baller)
-    // if (ball == baller) continue;
-    var diff = subVec(baller.pos, ball.pos);
+    if (baller.check()) continue;
+    let diff = subVec(baller.pos, ball_.pos);
     
-    // const dist_act = Math.sqrt( (diff[0]**2 + diff[1]**2) )
-    const dist = Math.max(Math.sqrt( (diff[0]**2 + diff[1]**2)  ),2);
-    // const dist = (Math.sqrt( (diff[0]**2 + diff[1]**2) ));
+    let dist = diff[0]**2 + diff[1]**2
 
-    // color the more orange, the more there are close by
-    if (dist < 100) {
-      // 280 -> 360+30=390
-      ball.clr_hsl += 3;
+    if (dist <= ball_.rad*ball_.rad + baller.rad*baller.rad) {
+
+      dist = Math.sqrt( (diff[0]**2 + diff[1]**2)  );
+      // dist, diff = ball.applyCollisions(ball_, baller, dist);
+      // diff = subVec(baller.pos, ball_.pos);
+    } else {
+      dist = Math.sqrt( (diff[0]**2 + diff[1]**2)  );
     }
     
-    // if (dist < ball.rad + baller.rad) {
-    //   // remove ball
-    //   ball.static = true;
-    //   const ball_rad = ball.rad;
-    //   const ball_mass = ball.mass;
-    //   const ball_vel = ball.vel;
-    //   ball.rad = 0;
-    //   ball.mass = 0;
-    //   ball.vel = [0,0];
-    //   // Area = pi * r^2
-    //   // Each ball (rad^2 * pi) * 2 = Area = pi*r^2
-    //   // pi cancel out
-    //   // rad_1^2 + rad_2^2 = r^2
-    //   // Math.sqrt(ball.rad**2 + baller.rad**2) = Area
-    //   baller.rad = Math.sqrt( ball_rad**2 + baller.rad**2 )
-      
-    //   baller.mass += ball_mass;
-    //   // add smashing velocities
-    //   // have the smaller one affect big less
-    //   // ball.vel[0] = baller.
-    //   baller.acc = addVec(baller.acc, ball_vel);
-    //   continue
-    // }
-
     // get normalized vector
     // hypotanous / hyp = 1
     // side / hyp = normalized
     
-    const inv_distance = 1/dist;
+    const inv_distance = 1/Math.max(dist,0);
     
     const normalized_x = diff[0] * inv_distance;
     const normalized_y = diff[1] * inv_distance;
@@ -100,16 +99,16 @@ function calcAcc(ball, int) {
     // F = g * ( m_1 * m_2 ) / r^2
     // const g = 6.637*(10**-11)
 
-    if (!ball.static) {
-      ball.acc[0] = normalized_x * g * (baller.mass * inverse_square_dropoff);
-      ball.acc[1] = normalized_y * g * (baller.mass * inverse_square_dropoff);
+    if (!ball_.static) {
+      ball_.acc[0] = normalized_x * g * (baller.mass * inverse_square_dropoff);
+      ball_.acc[1] = normalized_y * g * (baller.mass * inverse_square_dropoff);
 
-      ball.vel = addVec(ball.acc, ball.vel);
+      ball_.vel = addVec(ball_.acc, ball_.vel);
     }
 
     if (!baller.static) {
-      baller.acc[0] = -normalized_x * g * (ball.mass * inverse_square_dropoff);
-      baller.acc[1] = -normalized_y * g * (ball.mass * inverse_square_dropoff);
+      baller.acc[0] = -normalized_x * g * (ball_.mass * inverse_square_dropoff);
+      baller.acc[1] = -normalized_y * g * (ball_.mass * inverse_square_dropoff);
 
       baller.vel = addVec(baller.acc, baller.vel);
     }
@@ -117,7 +116,7 @@ function calcAcc(ball, int) {
 }
 
 class ball {
-	constructor(x,y,stat=false,mass=1,vel=[0,0],rad=1,clr="white") {
+	constructor(x,y,stat=false,mass=1,vel=[0,0],rad=1,clr="white",grav_=0) {
     this.x = x || Math.random() * 500 + 100;
     this.y = y || Math.random() * 500 + 100;
     this.history = [];
@@ -125,6 +124,10 @@ class ball {
     this.rad = rad;
     this.clr = clr;
     this.clr_hsl = 0;
+    this.text = ""
+    this.velocity_v = false;
+    this.acc_v = false;
+    this.grav = grav_;
     
     this.mass = mass;
     this.static = stat;
@@ -132,15 +135,57 @@ class ball {
     this.vel = vel;
     this.acc = [0, 0];
 
-    this.history_toggle = false;
-    this.history_length = 50
+    this.history_toggle = true;
+    this.history_length = 5000
   }
   
+  check() {
+    // check if outside bounds
+    if (this.pos[0] < 0) return true;
+    if (this.pos[0] > windowWidth) return true;
+    if (this.pos[1] < 0) return true;
+    if (this.pos[1] > windowHeight) return true;
+  }
+
+  static applyCollisions(obj_1, obj_2, dist2) {
+    if (obj_1 == obj_2) return;
+    // const dist1 = 
+    //   Math.pow(obj_1.pos[0] - obj_2.pos[0],2)
+    //   +
+    //   Math.pow(obj_1.pos[1] - obj_2.pos[1],2);
+
+    // if (dist1 < (obj_1.rad+obj_2.rad)*(obj_1.rad+obj_2.rad) ) {
+    // var dist2 = Math.sqrt(dist1);
+    const collisionVec = subVec(obj_1.pos, obj_2.pos);
+    const n = [collisionVec[0]/dist2, collisionVec[1]/dist2]
+    const delta = obj_1.rad+obj_2.rad-dist2;
+    // const coeff = 0.5;
+    const n_delta = [0.5*coeff*delta, 0.5*coeff*delta]
+
+    if (!obj_1.static) {
+      const old_pos = obj_1.pos;
+      obj_1.pos = addVec( obj_1.pos, mulVector(n_delta,n) );
+      // obj_1.vel = subVec(obj_1.pos,old_pos);
+    }
+    if (!obj_2.static) {
+      const old_pos = obj_2.pos;
+      obj_2.pos = subVec( obj_2.pos, mulVector(n_delta,n) );
+      // obj_2.vel = subVec(obj_2.pos,old_pos);
+    }
+    const change_pos = subVec(obj_2.pos, obj_1.pos)
+    const dist = Math.sqrt( (change_pos[0]**2 + change_pos[1]**2)  );
+    return dist, change_pos
+    // }
+
+  }
+
   update(i) {
     // if(this.static) return;
     // this.acc = [0,0];
     this.clr_hsl = 0
-    calcAcc(this, i);
+    if(!this.check()) {
+      calcAcc(this, i);
+    }
 
     // this.vel = addVec(this.acc, this.vel);
 
@@ -170,56 +215,128 @@ class ball {
   }
   	
   draw() {
+
+    if (this.history_toggle) {
+      ctx.beginPath();
+      ctx.strokeStyle = "rgba(255,255,255,0.5)"
+      if (this.history.length > 0) {
+        ctx.beginPath();
+        ctx.lineWidth = 2
+        ctx.moveTo(this.history[0][0],this.history[0][1])
+        for (let i = 1; i < this.history.length; i++) {
+          ctx.lineTo(
+            this.history[i][0],
+            this.history[i][1]
+          )
+        }
+        ctx.stroke()
+      }
+    }
+
     // original
-    // ctx.beginPath();
-    // ctx.arc(this.pos[0], this.pos[1], this.rad, 0, 2 * Math.PI);
-    // ctx.fillStyle = this.clr;
+    ctx.beginPath();
+    ctx.arc(this.pos[0], this.pos[1], this.rad, 0, 2 * Math.PI);
+    ctx.fillStyle = this.clr;
+    ctx.fill();
 
     // color by speed
     // 240 (low) -> 0 (high)
+    // if (this.check()) return
     // ctx.beginPath();
     // const speed = Math.abs(this.vel[0]**2 + this.vel[1]**2);
     // ctx.fillStyle = `hsl(${Math.max(240-speed*150,0)},100%,50%)`;
+    // ctx.arc(this.pos[0], this.pos[1], this.rad, 0, 2 * Math.PI);
     // ctx.fill();
 
     // I wonder what effect i could get if i color 10-50 random points AROUND the point but not the point
     // Like noise
-    const o = 30
-    const noise_count = 10
-    for (let i = 0; i < noise_count; i++) {
-      ctx.beginPath();
-      const radian_angle = Math.random()*TWO_PI;
-      const angle = [
-        Math.cos(radian_angle),
-        Math.sin(radian_angle)
-      ]
-      const circle_distance = (Math.random()**1)*o
-      const offset = [
-        angle[0]*(circle_distance),
-        angle[1]*(circle_distance),
-      ]
+    // const o = 30
+    // const noise_count = 10
+    // for (let i = 0; i < noise_count; i++) {
+    //   ctx.beginPath();
+    //   const radian_angle = Math.random()*TWO_PI;
+    //   const angle = [
+    //     Math.cos(radian_angle),
+    //     Math.sin(radian_angle)
+    //   ]
+    //   const circle_distance = (Math.random()**1)*o
+    //   const offset = [
+    //     angle[0]*(circle_distance),
+    //     angle[1]*(circle_distance),
+    //   ]
 
-      // 280 -> 360+30=390
-      ctx.fillStyle = `hsl(${ Math.min(390,260+this.clr_hsl) },100%,50%)`;
-      // ctx.fillStyle = `hsl(260,100%,50%)`;
-      ctx.arc(this.pos[0]+offset[0], this.pos[1]+offset[1], 0.475, 0, 2 * Math.PI);
-      ctx.fill();
+    //   // 280 -> 360+30=390
+    //   ctx.fillStyle = `hsl(${ Math.min(390,260+this.clr_hsl) },100%,50%)`;
+    //   // ctx.fillStyle = `hsl(260,100%,50%)`;
+    //   ctx.arc(this.pos[0]+offset[0], this.pos[1]+offset[1], 0.475, 0, 2 * Math.PI);
+    //   ctx.fill();
+    // }
+
+    if (this.text != "") {
+      ImGui.text(
+        this.text,
+        this.pos[0] + 10, this.pos[1]+this.rad
+      )
     }
 
-    if (!this.history_toggle) return
-    ctx.beginPath();
-    ctx.strokeStyle = "white"
-    if (this.history.length > 0) {
+    if (this.velocity_v) {
       ctx.beginPath();
       ctx.lineWidth = 2
-      ctx.moveTo(this.history[0][0],this.history[0][1])
-      for (let i = 1; i < this.history.length; i++) {
-        ctx.lineTo(
-          this.history[i][0],
-          this.history[i][1]
-        )
-      }
-      ctx.stroke()
+      ctx.strokeStyle = "red"
+      ctx.moveTo(this.pos[0],this.pos[1])
+      ctx.lineTo(
+        this.pos[0]+this.vel[0]*100,
+        this.pos[1]+this.vel[1]*100
+      )
+      ctx.stroke();
+
+      ImGui.text(
+        "V: " + Math.sqrt(this.vel[0]**2 + this.vel[1]**2).toFixed(2),
+        this.pos[0]+this.vel[0]*100,
+        this.pos[1]+this.vel[1]*100+this.rad/2
+      )
+    }
+
+    if (this.acc_v) {
+      // console.log(this.acc)
+
+      const baller = balls[1]
+      let diff = subVec(baller.pos, this.pos);
+      const dist = Math.sqrt(
+        (diff[0])**2+
+        (diff[1])**2
+      )
+      const inv_distance = 1/Math.max(dist,0);
+    
+      const normalized_x = diff[0] * inv_distance;
+      const normalized_y = diff[1] * inv_distance;
+      
+      // apply inverse square law to gravity
+      const inverse_square_dropoff = inv_distance * inv_distance
+      
+      // F = g * ( m_1 * m_2 ) / r^2
+      // const g = 6.637*(10**-11)
+
+      let acc = []
+      acc[0] = normalized_x * g * (baller.mass * inverse_square_dropoff);
+      acc[1] = normalized_y * g * (baller.mass * inverse_square_dropoff);
+
+      ctx.beginPath();
+      ctx.lineWidth = 2
+      ctx.strokeStyle = "red"
+      ctx.moveTo(this.pos[0],this.pos[1])
+      ctx.lineTo(
+        this.pos[0]+acc[0]*30000,
+        this.pos[1]+acc[1]*30000
+      )
+      ctx.stroke();
+
+      // console.log(this.pos[0]+acc[0]*100)
+      ImGui.text(
+        "Acc",
+        this.pos[0]+acc[0]*30000,
+        this.pos[1]+acc[1]*30000+this.rad/2
+      )
     }
   }
 }
@@ -236,7 +353,7 @@ function new_ball(...args) {
   balls.push(new ball(...args))
 }
 
-function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_vel=[0,0], static=false) {
+function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_vel=[0,0], static_=false, ball_r=2, center_r=6, center_clr="white", ball_clr="white") {
   const ball_1 = position;
   for (var i = 0; i < size; i++) {
     // from 0-2pi around circle, get normal vector, multiply by random distance.
@@ -256,27 +373,33 @@ function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_ve
     // gravity = 100
     // const v = Math.sqrt( central_gravity/100 * circle_distance ) / radius
 
+    // v = sqrt( (G * M * m) / r )
+
     // v = sqrt ( G * Mass / Rad )
-    const grav = Math.sqrt(g*core_gravity/(circle_distance+min))
+    // const grav = Math.sqrt(g*core_gravity/(circle_distance+min))
+    const grav = Math.sqrt( (g*core_gravity)/(radius+min) )
 
     balls.push(new ball(
       offset[0]+ball_1[0],
       offset[1]+ball_1[1],
       false,
-      Math.random()*(10**8)+10**6,
+      small_body_mass,
+      // (Math.random()*(10**9))+10**7,
       [
         ((Math.sin(radian_angle)))*grav+core_vel[0],
         (-(Math.cos(radian_angle)))*grav+core_vel[1],
       ],
-      1.1,
-      `rgba(255,255,255, 0.5)`
+      ball_r, //rad
+      // 1.1, //rad
+      ball_clr,
+      grav
     ));
   }
   //                   x,           y ,   stat,   mass,          vel,    rad, clr
-  balls.push(new ball(ball_1[0],ball_1[1], static, core_gravity, core_vel, 3, "white"));
+  balls.push(new ball(ball_1[0],ball_1[1], static_, core_gravity, core_vel, center_r, center_clr));
 }
 
-function make_ball(radius, size, position, min=0, ball_gravity = 100, ball_vel=[0,0], static=false, random_vel=false, skew=0) {
+function make_ball(radius, size, position, min=0, ball_gravity = 100, ball_vel=[0,0], static_=false, random_vel=false, skew=0) {
   const ball_1 = position;
   for (var i = 0; i < size; i++) {
     const radian_angle = Math.random()*TWO_PI;
@@ -297,15 +420,16 @@ function make_ball(radius, size, position, min=0, ball_gravity = 100, ball_vel=[
     ]
     // const grav = Math.sqrt(core_gravity/(circle_distance+min))/distance_factor**2
     if (random_vel) {
-      const rand = 512
-      ball_vel[0] += Math.random()/rand-(1/(rand*2))
-      ball_vel[1] += Math.random()/rand-(1/(rand*2))
+      ball_vel = [
+        (Math.sin(radian_angle))/(radius/circle_distance),
+        -(Math.cos(radian_angle))/(radius/circle_distance),
+      ]
     }
 
     balls.push(new ball(
       offset[0]+ball_1[0],
       offset[1]+ball_1[1],
-      static,
+      static_,
       ball_gravity,
       [
         ball_vel[0],
@@ -319,6 +443,7 @@ function make_ball(radius, size, position, min=0, ball_gravity = 100, ball_vel=[
   // balls.push(new ball(ball_1[0],ball_1[1], static, core_gravity, core_vel, 3, "white"));
 }
 
+/*
 make_galaxy(
   400,  // radius
   500,  // amount
@@ -327,6 +452,23 @@ make_galaxy(
   10**11, // core gravity
   [0,0], //  // core velocity
   true // static
+)
+*/
+
+const sun_mass = 10**13;
+
+make_galaxy(
+  0,  // radius
+  1,  // amount
+  [windowWidth/2, windowHeight/2], // position
+  100, // min distance of inner ring
+  sun_mass, // core gravity
+  [0,0], //  // core velocity
+  true, // static
+  15,
+  30,
+  "yellow",
+  "green"
 )
 
 // make_galaxy(
@@ -340,14 +482,14 @@ make_galaxy(
 // )
   
 // make_ball(
-//   500,  // radius
+//   200,  // radius
 //   500,  // amount
 //   [windowWidth/2, windowHeight/2], // position
 //   0, // min distance of inner ring
-//   10**9, // core gravity
+//   small_body_gravity, // core gravity
 //   [0,0], //  // core velocity
 //   false, // static
-//   false, // random vel offset
+//   true, // random vel offset / rotate
 //   1.5, // skew
 // )
 
@@ -455,15 +597,95 @@ function visualize(grid_res = 50) {
 
 // visualize( 25 )
 
+imgui.width = 250;
 function animate() {
-  ctx.fillStyle = 'rgba(0,0,0,0.1)'
-	ctx.fillRect(0, 0, windowWidth, windowHeight);
-	// ctx.clearRect(0, 0, windowWidth, windowHeight);
+  // ctx.fillStyle = 'rgba(0,0,0,0.1)'
+	// ctx.fillRect(0, 0, windowWidth, windowHeight);
+	ctx.clearRect(0, 0, windowWidth, windowHeight);
 
+  // console.log(earth_v_checkbox.state)
+  // console.log(earth_a_checkbox.state)
+
+  if (earth_spawn.state) {
+    const min = 100
+    const rad = Math.random()*100
+    const radian_angle = Math.random()*TWO_PI;
+    const angle = [
+      Math.cos(radian_angle),
+      Math.sin(radian_angle)
+    ]
+    // Get the random distancez
+    const circle_distance = rad+min
+    // Get vector offset
+    const offset = [
+      angle[0]*(circle_distance),
+      angle[1]*(circle_distance),
+    ]
+
+    var grav_ = Math.sqrt( (g*sun_mass)/(rad+min) )
+
+    balls.push(new ball(
+      offset[0]+ball_1[0],
+      offset[1]+ball_1[1],
+      false,
+      small_body_mass,
+      // (Math.random()*(10**9))+10**7,
+      [
+        ((Math.sin(radian_angle)))*grav_,
+        (-(Math.cos(radian_angle)))*grav_,
+      ],
+      15, //rad
+      "green",
+      grav_
+    ));
+    earth_spawn.state = false;
+  }
+
+  if (earth_spawn_nonCirc.state) {
+
+    const min = 100
+    const rad = Math.random()*100
+    const radian_angle = Math.random()*TWO_PI;
+    const angle = [
+      Math.cos(radian_angle),
+      Math.sin(radian_angle)
+    ]
+    // Get the random distancez
+    const circle_distance = rad+min
+    // Get vector offset
+    const offset = [
+      angle[0]*(circle_distance),
+      angle[1]*(circle_distance),
+    ]
+
+    var grav_ = Math.sqrt( (g*sun_mass)/(rad+min) )/1.25
+
+    balls.push(new ball(
+      offset[0]+ball_1[0],
+      offset[1]+ball_1[1],
+      false,
+      small_body_mass,
+      // (Math.random()*(10**9))+10**7,
+      [
+        ((Math.sin(radian_angle)))*grav_,
+        (-(Math.cos(radian_angle)))*grav_,
+      ],
+      15, //rad
+      "green",
+      grav_
+    ));
+
+    earth_spawn_nonCirc.state = false;
+  }
+  
   for (var i = 0; i < balls.length; i++) {
     const ball = balls[i];
     ball.update(i);
     ball.draw();
+    if (i == 1) continue
+    ball.text = earth_l_checkbox.state ? "Earth" : ""
+    ball.velocity_v = earth_v_checkbox.state
+    ball.acc_v = earth_a_checkbox.state
   }
 
   for (let i = 0; i < visual_vectors.length; i++) {
@@ -472,6 +694,7 @@ function animate() {
     vector.draw(calcAcc(vector, balls, vector.acc, -1))
 
   }
+  imgui.draw();
   window.requestAnimationFrame(animate);
 }
 
@@ -479,6 +702,7 @@ let mouse = false;
 let mx = 0;
 let my = 0;
 document.addEventListener('mousedown', (e) => {
+  return
   mx = e.x;
   my = e.y;
   if (!mouse) {
