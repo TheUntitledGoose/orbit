@@ -200,7 +200,7 @@ class ball {
     if (!this.check()) {
       this.history.push(this.pos);
     }
-    if (this.history.length > this.history_length) {
+    if (this.history.length > this.history_length || !this.check()) {
       this.history.shift();
     }
     
