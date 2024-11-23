@@ -14,12 +14,13 @@
 
 import { ImGui } from "./imgui.js"
 
-let imgui = new ImGui(200, 250, 400, 100);
-let earth_l_checkbox = imgui.checkbox("Show Label of Earth", false);
+let imgui = new ImGui(100, 50, 400, 100);
+let history = imgui.checkbox("Show History (Reduces Performance)", true);
 let earth_v_checkbox = imgui.checkbox("Show Velocity of Earth", true);
 let earth_a_checkbox = imgui.checkbox("Show Acceleration of Earth", true);
-let earth_spawn = imgui.button("Spawn Earth");
-let earth_spawn_nonCirc = imgui.button("Spawn Earth: Non-Circular Orbit");
+let earth_spawn = imgui.button("Spawn Asteroid");
+let earth_spawn_nonCirc = imgui.button("Spawn Asteroid: Non-Circular Orbit");
+let moon_spawn = imgui.button("Spawn Moon");
 
 imgui.init();
 
@@ -60,7 +61,7 @@ function mulVector(vec1, vec2) {
 
 const distance_factor = 1;
 const g = 6.637*(10**-13);
-const small_body_mass = 10**9;
+const small_body_mass = 10**13;
 const coeff = 1;
 // const g = 6.637*(10**-11); // real
 // const g = 6.637*(10**-4);
@@ -76,7 +77,12 @@ function calcAcc(ball_, int) {
 
     if (dist <= ball_.rad*ball_.rad + baller.rad*baller.rad) {
 
-      dist = Math.sqrt( (diff[0]**2 + diff[1]**2)  );
+      // dist = Math.sqrt( (diff[0]**2 + diff[1]**2)  );
+      if (ball_.rad < baller.rad) {
+        balls.splice(int, 1);
+      } else {
+        balls.splice(j, 1);
+      }
       // dist, diff = ball.applyCollisions(ball_, baller, dist);
       // diff = subVec(baller.pos, ball_.pos);
     } else {
@@ -136,7 +142,7 @@ class ball {
     this.acc = [0, 0];
 
     this.history_toggle = true;
-    this.history_length = 5000
+    this.history_length = 1500
   }
   
   check() {
@@ -145,6 +151,7 @@ class ball {
     if (this.pos[0] > windowWidth) return true;
     if (this.pos[1] < 0) return true;
     if (this.pos[1] > windowHeight) return true;
+    return false
   }
 
   static applyCollisions(obj_1, obj_2, dist2) {
@@ -190,7 +197,9 @@ class ball {
     // this.vel = addVec(this.acc, this.vel);
 
     this.pos = addVec(this.vel, this.pos);
-    this.history.push(this.pos);
+    if (!this.check()) {
+      this.history.push(this.pos);
+    }
     if (this.history.length > this.history_length) {
       this.history.shift();
     }
@@ -290,11 +299,11 @@ class ball {
       )
       ctx.stroke();
 
-      ImGui.text(
-        "V: " + Math.sqrt(this.vel[0]**2 + this.vel[1]**2).toFixed(2),
-        this.pos[0]+this.vel[0]*100,
-        this.pos[1]+this.vel[1]*100+this.rad/2
-      )
+      // ImGui.text(
+      //   "V: " + Math.sqrt(this.vel[0]**2 + this.vel[1]**2).toFixed(2),
+      //   this.pos[0]+this.vel[0]*100,
+      //   this.pos[1]+this.vel[1]*100+this.rad/2
+      // )
     }
 
     if (this.acc_v) {
@@ -332,11 +341,11 @@ class ball {
       ctx.stroke();
 
       // console.log(this.pos[0]+acc[0]*100)
-      ImGui.text(
-        "Acc",
-        this.pos[0]+acc[0]*30000,
-        this.pos[1]+acc[1]*30000+this.rad/2
-      )
+      // ImGui.text(
+      //   "Acc",
+      //   this.pos[0]+acc[0]*30000,
+      //   this.pos[1]+acc[1]*30000+this.rad/2
+      // )
     }
   }
 }
@@ -461,14 +470,14 @@ make_galaxy(
   0,  // radius
   1,  // amount
   [windowWidth/2, windowHeight/2], // position
-  100, // min distance of inner ring
+  350, // min distance of inner ring
   sun_mass, // core gravity
   [0,0], //  // core velocity
   true, // static
-  15,
-  30,
-  "yellow",
-  "green"
+  15, //rad of small bodies
+  30, //rad of big bodies
+  "yellow", //clr of big bodies
+  "green" //clr of small bodies
 )
 
 // make_galaxy(
@@ -597,7 +606,42 @@ function visualize(grid_res = 50) {
 
 // visualize( 25 )
 
-imgui.width = 250;
+function spawn(min=100, r=5, clr="gray", ball_=balls[1], mass=small_body_mass) { 
+  // const min = 100
+  // const rad = Math.random()*100
+  const radian_angle = Math.random()*TWO_PI;
+  const angle = [
+    Math.cos(radian_angle),
+    Math.sin(radian_angle)
+  ]
+  // Get the random distancez
+  const circle_distance = min
+  // Get vector offset
+  const offset = [
+    angle[0]*(circle_distance),
+    angle[1]*(circle_distance),
+  ]
+
+  var grav_ = Math.sqrt( (g*ball_.mass)/(min) )
+
+  return balls.push(new ball(
+    offset[0]+ball_.pos[0],
+    offset[1]+ball_.pos[1],
+    false,
+    mass,
+    // (Math.random()*(10**9))+10**7,
+    [
+      ((Math.sin(radian_angle)))*grav_+ball_.vel[0],
+      (-(Math.cos(radian_angle)))*grav_+ball_.vel[1],
+    ],
+    r, //rad
+    clr,
+    grav_
+  ));
+
+}
+
+imgui.width = 300;
 function animate() {
   // ctx.fillStyle = 'rgba(0,0,0,0.1)'
 	// ctx.fillRect(0, 0, windowWidth, windowHeight);
@@ -607,83 +651,33 @@ function animate() {
   // console.log(earth_a_checkbox.state)
 
   if (earth_spawn.state) {
-    const min = 100
-    const rad = Math.random()*100
-    const radian_angle = Math.random()*TWO_PI;
-    const angle = [
-      Math.cos(radian_angle),
-      Math.sin(radian_angle)
-    ]
-    // Get the random distancez
-    const circle_distance = rad+min
-    // Get vector offset
-    const offset = [
-      angle[0]*(circle_distance),
-      angle[1]*(circle_distance),
-    ]
 
-    var grav_ = Math.sqrt( (g*sun_mass)/(rad+min) )
-
-    balls.push(new ball(
-      offset[0]+ball_1[0],
-      offset[1]+ball_1[1],
-      false,
-      small_body_mass,
-      // (Math.random()*(10**9))+10**7,
-      [
-        ((Math.sin(radian_angle)))*grav_,
-        (-(Math.cos(radian_angle)))*grav_,
-      ],
-      15, //rad
-      "green",
-      grav_
-    ));
+    spawn((Math.random()*100)+300, 3, "gray", balls[1], 0)
+    
     earth_spawn.state = false;
   }
 
   if (earth_spawn_nonCirc.state) {
 
-    const min = 100
-    const rad = Math.random()*100
-    const radian_angle = Math.random()*TWO_PI;
-    const angle = [
-      Math.cos(radian_angle),
-      Math.sin(radian_angle)
-    ]
-    // Get the random distancez
-    const circle_distance = rad+min
-    // Get vector offset
-    const offset = [
-      angle[0]*(circle_distance),
-      angle[1]*(circle_distance),
-    ]
-
-    var grav_ = Math.sqrt( (g*sun_mass)/(rad+min) )/1.25
-
-    balls.push(new ball(
-      offset[0]+ball_1[0],
-      offset[1]+ball_1[1],
-      false,
-      small_body_mass,
-      // (Math.random()*(10**9))+10**7,
-      [
-        ((Math.sin(radian_angle)))*grav_,
-        (-(Math.cos(radian_angle)))*grav_,
-      ],
-      15, //rad
-      "green",
-      grav_
-    ));
+    spawn(250, 3, "gray", balls[1], 1)
+    balls[balls.length-1].vel = mulVector(balls[balls.length-1].vel, [0.75,0.75])
 
     earth_spawn_nonCirc.state = false;
   }
   
+  if (moon_spawn.state) {
+
+    spawn(50, 5, "gray", balls[0], 0)
+
+    moon_spawn.state = false;
+  }
+
   for (var i = 0; i < balls.length; i++) {
     const ball = balls[i];
+    ball.history_toggle = history.state
     ball.update(i);
     ball.draw();
     if (i == 1) continue
-    ball.text = earth_l_checkbox.state ? "Earth" : ""
     ball.velocity_v = earth_v_checkbox.state
     ball.acc_v = earth_a_checkbox.state
   }
