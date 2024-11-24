@@ -62,7 +62,7 @@ function mulVector(vec1, vec2) {
 }
 
 const distance_factor = 1;
-const g = 6.637*(10**-13);
+const g = 6.637*(10**-11);
 const small_body_mass = 10**13;
 const coeff = 1;
 // const g = 6.637*(10**-11); // real
@@ -72,7 +72,7 @@ const coeff = 1;
 function calcAcc(ball_, int) {
   for (var j = int+1; j < balls.length; j++) {
     const baller = balls[j];
-    if (baller.check()) continue;
+    // if (baller.check()) continue;
     let diff = subVec(baller.pos, ball_.pos);
     
     let dist = diff[0]**2 + diff[1]**2
@@ -208,9 +208,9 @@ class ball {
     // if(this.static) return;
     // this.acc = [0,0];
     this.clr_hsl = 0
-    if(!this.check()) {
+    // if(!this.check()) {
       calcAcc(this, i);
-    }
+    // }
 
     // this.vel = addVec(this.acc, this.vel);
 
@@ -305,7 +305,7 @@ class ball {
       )
     }
 
-    if (this.velocity_v) {
+    if (this.velocity_v && !this.static) {
       ctx.beginPath();
       ctx.lineWidth = 2
       ctx.strokeStyle = "red"
@@ -323,39 +323,52 @@ class ball {
       // )
     }
 
-    if (this.acc_v) {
+    if (this.acc_v && !this.static) {
       // console.log(this.acc)
 
-      const baller = balls[1]
-      let diff = subVec(baller.pos, this.pos);
-      const dist = Math.sqrt(
-        (diff[0])**2+
-        (diff[1])**2
-      )
-      const inv_distance = 1/Math.max(dist,0);
+      // const baller = balls[1]
+      // let diff = subVec(baller.pos, this.pos);
+      // const dist = Math.sqrt(
+      //   (diff[0])**2+
+      //   (diff[1])**2
+      // )
+      // const inv_distance = 1/Math.max(dist,0);
     
-      const normalized_x = diff[0] * inv_distance;
-      const normalized_y = diff[1] * inv_distance;
+      // const normalized_x = diff[0] * inv_distance;
+      // const normalized_y = diff[1] * inv_distance;
       
-      // apply inverse square law to gravity
-      const inverse_square_dropoff = inv_distance * inv_distance
+      // // apply inverse square law to gravity
+      // const inverse_square_dropoff = inv_distance * inv_distance
       
-      // F = g * ( m_1 * m_2 ) / r^2
-      // const g = 6.637*(10**-11)
+      // // F = g * ( m_1 * m_2 ) / r^2
+      // // const g = 6.637*(10**-11)
 
-      let acc = []
-      acc[0] = normalized_x * g * (baller.mass * inverse_square_dropoff);
-      acc[1] = normalized_y * g * (baller.mass * inverse_square_dropoff);
+      // let acc = []
+      // acc[0] = normalized_x * g * (baller.mass * inverse_square_dropoff);
+      // acc[1] = normalized_y * g * (baller.mass * inverse_square_dropoff);
 
+
+
+
+      // ctx.beginPath();
+      // ctx.lineWidth = 2
+      // ctx.strokeStyle = "red"
+      // ctx.moveTo(this.pos[0],this.pos[1])
+      // ctx.lineTo(
+      //   this.pos[0]+acc[0]*30000,
+      //   this.pos[1]+acc[1]*30000
+      // )
+      // OR
       ctx.beginPath();
       ctx.lineWidth = 2
       ctx.strokeStyle = "red"
       ctx.moveTo(this.pos[0],this.pos[1])
       ctx.lineTo(
-        this.pos[0]+acc[0]*30000,
-        this.pos[1]+acc[1]*30000
+        this.pos[0]+this.acc[0]*100000,
+        this.pos[1]+this.acc[1]*100000
       )
       ctx.stroke();
+
 
       // console.log(this.pos[0]+acc[0]*100)
       // ImGui.text(
@@ -487,7 +500,7 @@ make_galaxy(
   0,  // radius
   1,  // amount
   [windowWidth/2, windowHeight/2], // position
-  350, // min distance of inner ring
+  1000, // min distance of inner ring
   sun_mass, // core gravity
   [0,0], //  // core velocity
   true, // static
@@ -575,54 +588,6 @@ make_galaxy(
 //   [.01,.01] // core velocity
 // )
 
-
-class visual {
-  constructor(x,y) {
-    this.pos = [x,y]
-
-    // needed for calcAcc
-    this.mass = 1;
-    this.acc = [0,0]
-  }
-
-  draw(vector) {
-    ctx.strokeStyle = "white";
-    vector[0] = Math.min(vector[0], .01)
-    vector[1] = Math.min(vector[1], .01)
-    // ctx.lineWidth = 15;
-    // console.log(vector)
-    ctx.beginPath();
-    ctx.moveTo(this.pos[0], this.pos[1]);
-    const res = 500
-    ctx.lineTo((vector[0]*res)+this.pos[0],(vector[1]*res)+this.pos[1]);
-    ctx.stroke();
-  }
-}
-
-let visual_vectors = []
-
-function visualize(grid_res = 50) {
-  // make a loop
-  // in loop, go in grid over whole canvas
-  // for each "grid cell", draw a vector where the accelaration goes
-  // const grid_res = res;
-  for (let y = 0; y < windowHeight/grid_res; y++) {
-    for (let x = 0; x < windowWidth/grid_res; x++) {
-      
-      visual_vectors.push(
-        new visual(
-          x*grid_res,
-          y*grid_res
-        )
-      )
-
-    }    
-  }
-
-}
-
-// visualize( 25 )
-
 function spawn(min=100, r=5, clr="gray", ball_=balls[1], mass=small_body_mass) { 
   // const min = 100
   // const rad = Math.random()*100
@@ -638,6 +603,8 @@ function spawn(min=100, r=5, clr="gray", ball_=balls[1], mass=small_body_mass) {
     angle[0]*(circle_distance),
     angle[1]*(circle_distance),
   ]
+
+  console.log(circle_distance)
 
   var grav_ = Math.sqrt( (g*ball_.mass)/(min) )
 
@@ -687,14 +654,14 @@ function animate() {
 
   if (earth_spawn.state) {
 
-    spawn((Math.random()*100)+300, 3, "gray", balls[1], 0)
+    spawn((Math.random()*5000)+300, 3, "gray", balls[1], 1)
     
     earth_spawn.state = false;
   }
 
   if (earth_spawn_nonCirc.state) {
 
-    spawn(250, 3, "gray", balls[1], 1)
+    spawn((Math.random()*5000)+300, 3, "gray", balls[1], 1)
     balls[balls.length-1].vel = mulVector(balls[balls.length-1].vel, [0.75,0.75])
 
     earth_spawn_nonCirc.state = false;
@@ -702,7 +669,7 @@ function animate() {
   
   if (moon_spawn.state) {
 
-    spawn(50, 5, "gray", balls[0], 0)
+    spawn(250, 5, "gray", balls[0], 0)
 
     moon_spawn.state = false;
   }
@@ -715,13 +682,6 @@ function animate() {
     if (i == 1) continue
     ball.velocity_v = earth_v_checkbox.state
     ball.acc_v = earth_a_checkbox.state
-  }
-
-  for (let i = 0; i < visual_vectors.length; i++) {
-    const vector = visual_vectors[i];
-    
-    vector.draw(calcAcc(vector, balls, vector.acc, -1))
-
   }
   
   ctx.restore();
@@ -809,7 +769,9 @@ document.addEventListener("wheel", (e) => {
   const mouseY = e.clientY - rect.top;
 
   // Adjust scale
-  const newScale = delta < 0 ? scale * zoomFactor : scale / zoomFactor;
+  const newScale = Math.min(Math.max(delta < 0 ? scale * zoomFactor : scale / zoomFactor, 0.01), 10);;
+
+  
 
   // Adjust origin to zoom towards mouse position
   originX = mouseX - (mouseX - originX) * (newScale / scale);
