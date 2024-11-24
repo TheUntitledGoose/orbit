@@ -33,7 +33,9 @@ document.addEventListener("contextmenu", function (e) {
 const c = document.getElementById("myCanvas");
 const ctx = c.getContext("2d");
 
-let scrol = 1;
+let scale = 1;
+let originX = 0;
+let originY = 0;
 
 let windowWidth = window.innerWidth;
 let windowHeight = window.innerHeight;
@@ -645,7 +647,25 @@ imgui.width = 300;
 function animate() {
   // ctx.fillStyle = 'rgba(0,0,0,0.1)'
 	// ctx.fillRect(0, 0, windowWidth, windowHeight);
+  ctx.save();
 	ctx.clearRect(0, 0, windowWidth, windowHeight);
+
+  if (isLocked && lockedBallIndex !== -1 && balls[lockedBallIndex]) {
+    // Ensure the locked ball is centered
+    const ball = balls[lockedBallIndex];
+    const centerX = c.width / 2;
+    const centerY = c.height / 2;
+
+    // Adjust origin to keep the ball centered
+    originX = centerX - ball.pos[0] * scale;
+    originY = centerY - ball.pos[1] * scale;
+  } else if (!balls[lockedBallIndex]) {
+    isLocked = false;
+    lockedBallIndex = -1;
+  }
+
+  ctx.translate(originX, originY);
+  ctx.scale(scale, scale);
 
   // console.log(earth_v_checkbox.state)
   // console.log(earth_a_checkbox.state)
@@ -688,34 +708,100 @@ function animate() {
     vector.draw(calcAcc(vector, balls, vector.acc, -1))
 
   }
+  
+  ctx.restore();
+  
   imgui.draw();
+  
   window.requestAnimationFrame(animate);
 }
 
 let mouse = false;
 let mx = 0;
 let my = 0;
-document.addEventListener('mousedown', (e) => {
-  return
-  mx = e.x;
-  my = e.y;
-  if (!mouse) {
-    balls.push(new ball(mx,my, true, 10**11, [0,0], 5, "white"));
-    mouse = true;
-  }
-})
+let isLocked = false;
+let lockedBallIndex = -1;
 
-document.addEventListener('mousemove', (e) => {
-  if (mouse) {
+c.addEventListener('mousedown', (e) => {
+  if (!imgui.checkBounding(e.x, e.y) && e.button == 0) {
+    mouse = true;
     mx = e.x;
     my = e.y;
-    balls[balls.length-1].pos = [mx,my];
+    c.style.cursor = 'grabbing'; // Change cursor to indicate panning
+  } else if (e.button == 2) {
+    // lock on to the ball at this location
+    const mouseX = (e.clientX - c.getBoundingClientRect().left - originX) / scale;
+    const mouseY = (e.clientY - c.getBoundingClientRect().top - originY) / scale;
+
+    for (let i = 0; i < balls.length; i++) {
+      const ball = balls[i];
+      const distance = Math.sqrt(
+        (mouseX - ball.pos[0]) ** 2 + (mouseY - ball.pos[1]) ** 2
+      );
+
+      if (distance <= ball.rad) {
+        isLocked = true;
+        lockedBallIndex = i; // Lock onto this ball
+        break;
+      } else {
+        isLocked = false;
+        lockedBallIndex = -1;
+      }
+    }
   }
 })
 
-document.addEventListener('mouseup', (e) => {
-  if (mouse) balls.pop();
+c.addEventListener("mousemove", (e) => {
+  if (mouse) {
+    const deltaX = e.x - mx;
+    const deltaY = e.y - my;
+    
+    // Update the origin based on mouse movement
+    originX += deltaX;
+    originY += deltaY;
+
+    // Update the last mouse position
+    mx = e.x;
+    my = e.y;
+
+    isLocked = false;
+    lockedBallIndex = -1;
+  }
+});
+
+c.addEventListener("mouseup", () => {
   mouse = false;
+  c.style.cursor = 'default'; // Revert cursor back
+});
+
+// Handle mouse leave to stop panning when the cursor leaves canvas
+c.addEventListener("mouseleave", () => {
+  mouse = false;
+  c.style.cursor = 'default';
+});
+
+
+document.addEventListener("wheel", (e) => {
+  // on scroll, change the scroll variable
+  e.preventDefault();
+  const zoomFactor = 1.1; // Zoom speed
+  const delta = Math.sign(e.deltaY); // Detect scroll direction (up or down)
+
+  // Mouse position relative to canvas
+  const rect = c.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+
+  // Adjust scale
+  const newScale = delta < 0 ? scale * zoomFactor : scale / zoomFactor;
+
+  // Adjust origin to zoom towards mouse position
+  originX = mouseX - (mouseX - originX) * (newScale / scale);
+  originY = mouseY - (mouseY - originY) * (newScale / scale);
+
+  scale = newScale;
+  imgui.scale = scale;
+  imgui.transform = [originX, originY];
 })
 
 window.requestAnimationFrame(animate);

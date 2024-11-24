@@ -154,6 +154,16 @@ class ImGui {
 		}
 	}
 
+	checkBounding(x, y) {
+		var minX = this.x;
+		var minY = this.y;
+		var maxX = this.x + this.width;
+		var maxY = this.y + this.height;
+
+		if (between(x, minX, maxX) && between(y, minY, maxY)) return true;
+		return false;
+	}
+
 	checkbox(text = "Placeholder", toggle = false) {
 		var checkbox = new Checkbox(text, toggle);
 		this.elements.push(checkbox);
