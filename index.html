@@ -80,11 +80,27 @@ function calcAcc(ball_, int) {
     if (dist <= ball_.rad*ball_.rad + baller.rad*baller.rad) {
 
       // dist = Math.sqrt( (diff[0]**2 + diff[1]**2)  );
+
+      // if (ball_.rad < baller.rad) {
+      //   balls.splice(int, 1);
+      // } else {
+      //   balls.splice(j, 1);
+      // }
+
+      // instead of deleting ^
+      // set ball to static, and rad to 0, so that the trail disappears slowly
+      // check whicher is smaller
       if (ball_.rad < baller.rad) {
-        balls.splice(int, 1);
+        ball_.static = true;
+        ball_.vel = [0,0]
+        ball_.rad = 0;
       } else {
-        balls.splice(j, 1);
+        baller.static = true;
+        baller.vel = [0,0]
+        baller.rad = 0;
       }
+
+
       // dist, diff = ball.applyCollisions(ball_, baller, dist);
       // diff = subVec(baller.pos, ball_.pos);
     } else {
@@ -199,10 +215,9 @@ class ball {
     // this.vel = addVec(this.acc, this.vel);
 
     this.pos = addVec(this.vel, this.pos);
-    if (!this.check()) {
-      this.history.push(this.pos);
-    }
-    if (this.history.length > this.history_length || !this.check()) {
+    
+    this.history.push(this.pos);
+    if (this.history.length > this.history_length) {
       this.history.shift();
     }
     
@@ -727,7 +742,7 @@ c.addEventListener('mousedown', (e) => {
     mouse = true;
     mx = e.x;
     my = e.y;
-    c.style.cursor = 'grabbing'; // Change cursor to indicate panning
+    // c.style.cursor = 'grabbing'; // Change cursor to indicate panning
   } else if (e.button == 2) {
     // lock on to the ball at this location
     const mouseX = (e.clientX - c.getBoundingClientRect().left - originX) / scale;
@@ -753,6 +768,7 @@ c.addEventListener('mousedown', (e) => {
 
 c.addEventListener("mousemove", (e) => {
   if (mouse) {
+    c.style.cursor = 'grabbing'; // Change cursor to indicate panning
     const deltaX = e.x - mx;
     const deltaY = e.y - my;
     
