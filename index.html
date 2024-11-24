@@ -17,7 +17,7 @@ import { ImGui } from "./imgui.js"
 let imgui = new ImGui(100, 50, 400, 100);
 let history = imgui.checkbox("Show History (Reduces Performance)", true);
 let earth_v_checkbox = imgui.checkbox("Show Velocity of Earth", true);
-let earth_a_checkbox = imgui.checkbox("Show Acceleration of Earth", true);
+let earth_a_checkbox = imgui.checkbox("Show Acceleration of Earth (Broken)", false);
 let earth_spawn = imgui.button("Spawn Asteroid");
 let earth_spawn_nonCirc = imgui.button("Spawn Asteroid: Non-Circular Orbit");
 let moon_spawn = imgui.button("Spawn Moon");
@@ -392,7 +392,7 @@ function new_ball(...args) {
   balls.push(new ball(...args))
 }
 
-function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_vel=[0,0], static_=false, ball_r=2, center_r=6, center_clr="white", ball_clr="white") {
+function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_vel=[0,0], static_=false, ball_r=2, center_r=6, center_clr="white", ball_clr="white", ball_mass=small_body_mass) {
   const ball_1 = position;
   for (var i = 0; i < size; i++) {
     // from 0-2pi around circle, get normal vector, multiply by random distance.
@@ -422,7 +422,7 @@ function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_ve
       offset[0]+ball_1[0],
       offset[1]+ball_1[1],
       false,
-      small_body_mass,
+      ball_mass,
       // (Math.random()*(10**9))+10**7,
       [
         ((Math.sin(radian_angle)))*grav+core_vel[0],
@@ -494,7 +494,8 @@ make_galaxy(
 )
 */
 
-const sun_mass = 10**13;
+const sun_mass = 10**13; // sun mass: 1.989e+30 kg
+// const sun_mass = 1.989**30; // sun mass: 1.989e+30 kg
 
 make_galaxy(
   0,  // radius
@@ -504,10 +505,12 @@ make_galaxy(
   sun_mass, // core gravity
   [0,0], //  // core velocity
   true, // static
-  15, //rad of small bodies
-  30, //rad of big bodies
+  15, //rad of small bodies //6,357,000 earth radius
+  30, //rad of big bodies // sun radius: 695,700,000
   "yellow", //clr of big bodies
-  "green" //clr of small bodies
+  "green", //clr of small bodies
+  small_body_mass, // mass of small bodies. earth mass: 5.972e+24 kg
+  // 5.972*10**24, // mass of small bodies. earth mass: 5.972e+24 kg
 )
 
 // make_galaxy(
