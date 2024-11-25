@@ -118,11 +118,11 @@ class ImGui {
 		"Float" : true
 	}
 
-	static text(text, x, y) {
-    ctx.fillStyle = "white";
-    ctx.font = "14px sans-serif";
-    ctx.fillText(text, x, y);
-  }
+	static text(text, x, y, font="14px sans-serif") {
+		ctx.fillStyle = "white";
+		ctx.font = font;
+		ctx.fillText(text, x, y);
+	}
 
 	checkMove(x, y) {
 		var minX = this.x + TRIG_OFFSET * 5;

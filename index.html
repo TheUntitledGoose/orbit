@@ -15,7 +15,7 @@
 import { ImGui } from "./imgui.js"
 
 let imgui = new ImGui(100, 50, 400, 100);
-let history = imgui.checkbox("Show History (Reduces Performance)", true);
+let history = imgui.checkbox("Show History (Reduces Performance)", false);
 let earth_v_checkbox = imgui.checkbox("Show Velocity of Earth", true);
 let earth_a_checkbox = imgui.checkbox("Show Acceleration of Earth (Broken)", false);
 let earth_spawn = imgui.button("Spawn Asteroid");
@@ -33,9 +33,11 @@ document.addEventListener("contextmenu", function (e) {
 const c = document.getElementById("myCanvas");
 const ctx = c.getContext("2d");
 
-let scale = 1;
+let scale = 0.001;
 let originX = 0;
 let originY = 0;
+
+let pause = false;
 
 let windowWidth = window.innerWidth;
 let windowHeight = window.innerHeight;
@@ -92,10 +94,12 @@ function calcAcc(ball_, int) {
       // check whicher is smaller
       if (ball_.rad < baller.rad) {
         ball_.static = true;
+        ball_.mass = 0;
         ball_.vel = [0,0]
         ball_.rad = 0;
       } else {
         baller.static = true;
+        baller.mass = 0;
         baller.vel = [0,0]
         baller.rad = 0;
       }
@@ -140,9 +144,7 @@ function calcAcc(ball_, int) {
 }
 
 class ball {
-	constructor(x,y,stat=false,mass=1,vel=[0,0],rad=1,clr="white",grav_=0) {
-    this.x = x || Math.random() * 500 + 100;
-    this.y = y || Math.random() * 500 + 100;
+	constructor(x=0,y=0,stat=false,mass=1,vel=[0,0],rad=1,clr="white",grav_=0) {
     this.history = [];
     
     this.rad = rad;
@@ -155,20 +157,25 @@ class ball {
     
     this.mass = mass;
     this.static = stat;
-    this.pos = [this.x, this.y];
+    this.pos = [x, y];
     this.vel = vel;
     this.acc = [0, 0];
 
     this.history_toggle = true;
-    this.history_length = 1500
+    this.history_length = 1000
   }
   
-  check() {
+  check(x,y) {
     // check if outside bounds
-    if (this.pos[0] < 0) return true;
-    if (this.pos[0] > windowWidth) return true;
-    if (this.pos[1] < 0) return true;
-    if (this.pos[1] > windowHeight) return true;
+    // console.log(originX, originY)
+    const minX = (x - c.getBoundingClientRect().left - originX) * scale
+    const minY = (y - c.getBoundingClientRect().top - originY) * scale
+
+    if (this.clr == "yellow") console.log((x*2)/scale,minX)
+    if ((x) < (minX-this.rad/2)) return true;
+    if ((x) > (minX+windowWidth+this.rad/2)) return true;
+    if ((y) < (minY-this.rad)) return true;
+    if ((y) > (minY+windowHeight+this.rad)) return true;
     return false
   }
 
@@ -215,6 +222,9 @@ class ball {
     // this.vel = addVec(this.acc, this.vel);
 
     this.pos = addVec(this.vel, this.pos);
+
+    this.pos[0] = parseFloat(this.pos[0].toPrecision(15))
+    this.pos[1] = parseFloat(this.pos[1].toPrecision(15))
     
     this.history.push(this.pos);
     if (this.history.length > this.history_length) {
@@ -244,12 +254,13 @@ class ball {
 
     if (this.history_toggle) {
       ctx.beginPath();
-      ctx.strokeStyle = "rgba(255,255,255,0.5)"
+      ctx.strokeStyle = "rgba(255,0,255,1)"
       if (this.history.length > 0) {
         ctx.beginPath();
-        ctx.lineWidth = 2
+        ctx.lineWidth = 100;
         ctx.moveTo(this.history[0][0],this.history[0][1])
         for (let i = 1; i < this.history.length; i++) {
+          // if (this.check(this.history[i][0],this.history[i][1])) continue
           ctx.lineTo(
             this.history[i][0],
             this.history[i][1]
@@ -260,6 +271,7 @@ class ball {
     }
 
     // original
+    // if (this.check(this.pos[0],this.pos[1])) return
     ctx.beginPath();
     ctx.arc(this.pos[0], this.pos[1], this.rad, 0, 2 * Math.PI);
     ctx.fillStyle = this.clr;
@@ -307,12 +319,12 @@ class ball {
 
     if (this.velocity_v && !this.static) {
       ctx.beginPath();
-      ctx.lineWidth = 2
+      ctx.lineWidth = 10
       ctx.strokeStyle = "red"
       ctx.moveTo(this.pos[0],this.pos[1])
       ctx.lineTo(
-        this.pos[0]+this.vel[0]*100,
-        this.pos[1]+this.vel[1]*100
+        this.pos[0]+this.vel[0]*10,
+        this.pos[1]+this.vel[1]*10
       )
       ctx.stroke();
 
@@ -494,23 +506,23 @@ make_galaxy(
 )
 */
 
-const sun_mass = 10**13; // sun mass: 1.989e+30 kg
-// const sun_mass = 1.989**30; // sun mass: 1.989e+30 kg
+// const sun_mass = 10**13; // sun mass: 1.989e+30 kg
+const sun_mass = 1.989**24; // sun mass: 1.989e+30 kg
 
 make_galaxy(
   0,  // radius
   1,  // amount
   [windowWidth/2, windowHeight/2], // position
-  1000, // min distance of inner ring
+  149_600_000, // min distance of inner ring // Earth orbit rad: 149,600,000 km
   sun_mass, // core gravity
   [0,0], //  // core velocity
   true, // static
-  15, //rad of small bodies //6,357,000 earth radius
-  30, //rad of big bodies // sun radius: 695,700,000
+  6_357, //rad of small bodies //6,357,000 earth radius : 15
+  695_700, //rad of big bodies // sun radius: 695,700,000 : 30
   "yellow", //clr of big bodies
   "green", //clr of small bodies
-  small_body_mass, // mass of small bodies. earth mass: 5.972e+24 kg
-  // 5.972*10**24, // mass of small bodies. earth mass: 5.972e+24 kg
+  // small_body_mass, // mass of small bodies. earth mass: 5.972e+24 kg 
+  5.972*(10**18), // mass of small bodies. earth mass: 5.972e+24 kg
 )
 
 // make_galaxy(
@@ -642,8 +654,8 @@ function animate() {
     const centerY = c.height / 2;
 
     // Adjust origin to keep the ball centered
-    originX = centerX - ball.pos[0] * scale;
-    originY = centerY - ball.pos[1] * scale;
+    originX = parseInt(centerX - (ball.pos[0] * scale));
+    originY = parseInt(centerY - (ball.pos[1] * scale));
   } else if (!balls[lockedBallIndex]) {
     isLocked = false;
     lockedBallIndex = -1;
@@ -657,14 +669,14 @@ function animate() {
 
   if (earth_spawn.state) {
 
-    spawn((Math.random()*5000)+300, 3, "gray", balls[1], 1)
+    spawn((Math.random()*1_000_000)+50_357, 10, "gray", balls[0], 1)
     
     earth_spawn.state = false;
   }
 
   if (earth_spawn_nonCirc.state) {
 
-    spawn((Math.random()*5000)+300, 3, "gray", balls[1], 1)
+    spawn((Math.random()*1_000_000)+50_357, 10, "gray", balls[0], 1)
     balls[balls.length-1].vel = mulVector(balls[balls.length-1].vel, [0.75,0.75])
 
     earth_spawn_nonCirc.state = false;
@@ -672,7 +684,10 @@ function animate() {
   
   if (moon_spawn.state) {
 
-    spawn(250, 5, "gray", balls[0], 0)
+    // moon orbit rad: 384,400 km : 250
+    // moon radius 1,737.5 km : 5
+    // moon mass: 7.348e+22 kg : 0
+    spawn(384_400, 1_735, "gray", balls[0], 7.348*(10**16))
 
     moon_spawn.state = false;
   }
@@ -680,15 +695,29 @@ function animate() {
   for (var i = 0; i < balls.length; i++) {
     const ball = balls[i];
     ball.history_toggle = history.state
-    ball.update(i);
+    if (!pause) ball.update(i);
     ball.draw();
     if (i == 1) continue
     ball.velocity_v = earth_v_checkbox.state
     ball.acc_v = earth_a_checkbox.state
   }
   
+  // if too small, draw text of planet
+  
   ctx.restore();
   
+  for (var i = 0; i < balls.length; i++) {
+    const ball = balls[i];
+    // if (scale <= 0.1) {
+      ImGui.text(
+        `Planet #${i}`,
+        ((ball.pos[0]+ball.rad)*scale+originX),
+        ((ball.pos[1]+ball.rad/2)*scale+originY),
+        "18px sans-serif"
+      )
+    // }
+  }
+
   imgui.draw();
   
   window.requestAnimationFrame(animate);
@@ -772,7 +801,7 @@ document.addEventListener("wheel", (e) => {
   const mouseY = e.clientY - rect.top;
 
   // Adjust scale
-  const newScale = Math.min(Math.max(delta < 0 ? scale * zoomFactor : scale / zoomFactor, 0.01), 10);;
+  const newScale = Math.min(Math.max(delta < 0 ? scale * zoomFactor : scale / zoomFactor, 0.0000000001), 50);
 
   
 
@@ -781,9 +810,22 @@ document.addEventListener("wheel", (e) => {
   originY = mouseY - (mouseY - originY) * (newScale / scale);
 
   scale = newScale;
-  imgui.scale = scale;
-  imgui.transform = [originX, originY];
 })
+
+document.addEventListener("keydown", (e) => {
+  // 32 == SPACE
+  if (e.keyCode == 32 && !pause) {
+    pause = true;
+    console.log(balls)
+  } else if (e.keyCode == 32 && pause) {
+    pause = false;
+  }
+})
+
+// Implement touch at somepoint
+// c.addEventListener("pointerdown", (e) => {
+//   console.log(e)
+// })
 
 window.requestAnimationFrame(animate);
 
