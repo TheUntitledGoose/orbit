@@ -271,13 +271,28 @@ class ball {
       if (this.history.length > 0) {
         ctx.beginPath();
         ctx.lineWidth = 2.5*1/scale;
-        ctx.moveTo(this.history[0][0],this.history[0][1])
+        if (isLocked == true) {
+          ctx.moveTo(
+            this.history[0][0] - balls[lockedBallIndex].history[0][0] + (balls[lockedBallIndex].pos[0]),
+            this.history[0][1] - balls[lockedBallIndex].history[0][1] + (balls[lockedBallIndex].pos[1])
+          )
+        } else {
+          ctx.moveTo(this.history[0][0],this.history[0][1])
+        }
+
         for (let i = 1; i < this.history.length; i++) {
           // if (this.check(this.history[i][0],this.history[i][1])) continue
-          ctx.lineTo(
-            this.history[i][0],
-            this.history[i][1]
-          )
+          if (isLocked == true && balls[lockedBallIndex].history.length > i) {
+            ctx.lineTo(
+              this.history[i][0] - balls[lockedBallIndex].history[i][0] + (balls[lockedBallIndex].pos[0]),
+              this.history[i][1] - balls[lockedBallIndex].history[i][1] + (balls[lockedBallIndex].pos[1])
+            )
+          } else if (isLocked == false) {
+            ctx.lineTo(
+              this.history[i][0],
+              this.history[i][1]
+            )
+          }
         }
         ctx.stroke()
       }
@@ -564,7 +579,6 @@ make_galaxy(
 // )
 
 function spawn(min=100, r=5, clr="gray", ball_=balls[1], mass=small_body_mass) { 
-  debugger
   // const min = 100
   // const rad = Math.random()*100
   const radian_angle = Math.random()*TWO_PI;
@@ -691,8 +705,8 @@ function animate() {
 let mouse = false;
 let mx = 0;
 let my = 0;
-let isLocked = false;
-let lockedBallIndex = -1;
+let isLocked = true;
+let lockedBallIndex = 0;
 
 c.addEventListener('mousedown', (e) => {
   if (!imgui.checkBounding(e.x, e.y) && e.button == 0) {
@@ -752,7 +766,6 @@ c.addEventListener("mouseleave", () => {
   mouse = false;
   c.style.cursor = 'default';
 });
-
 
 document.addEventListener("wheel", (e) => {
   // on scroll, change the scroll variable
