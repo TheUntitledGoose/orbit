@@ -1,11 +1,14 @@
 export { ImGui }
 
-const c = document.getElementById("myCanvas");
-const ctx = c.getContext("2d");
+// const c = document.getElementById("myCanvas");
+// const ctx = c.getContext("2d");
+let c;
+let ctx;
 
 let windowWidth = window.innerWidth;
 let windowHeight = window.innerHeight;
 
+//---CONSTANTS---//
 const TAB_COLOR_SEL = "#29477d";
 // const TAB_COLOR_SEL = "#0d0d0d";
 // const TAB_COLOR_SEL = "#242424";
@@ -27,8 +30,8 @@ const TRIG_OFFSET = 5;
 let curX = 0;
 let curY = 0;
 
-c.height = windowHeight;
-c.width = windowWidth;
+// c.height = windowHeight;
+// c.width = windowWidth;
 
 function rect(x, y, w, h, c) {
 	ctx.beginPath();
@@ -62,10 +65,11 @@ const between = (x, min, max) => {
 };
 
 class ImGui {
-	constructor(x = 150, y = 200, width = 400, height = 500) {
+	constructor(x = 150, y = 200, width = 400, height = 500, canvas) {
 		this.x = x;
 		this.y = y;
 		this.width = width;
+		this.init_height = height;
 		this.height = height;
 
 		this.moving = false;
@@ -74,7 +78,16 @@ class ImGui {
 
 		this.elements = [];
 
-		document.querySelector("canvas").addEventListener("mousedown", (e) => {
+		// ctx_ passed context
+		this.c = canvas;
+		c = canvas;
+		// c.height = windowHeight;
+		// c.width = windowWidth;
+
+		this.ctx = this.c.getContext('2d');
+		ctx = this.ctx;
+
+		this.c.addEventListener("mousedown", (e) => {
 			if (e.buttons == 1 && !this.hidden) this.checkClick(e.x, e.y, e);
 			if (e.buttons == 1) {		
 				if ( this.checkHide(e.x, e.y) ) {
@@ -92,7 +105,7 @@ class ImGui {
 			}
 		});
 		
-		document.querySelector("canvas").addEventListener("mousemove", (e) => {
+		this.c.addEventListener("mousemove", (e) => {
 			// get offset of cursor from origin
 			// instead of movementX/Y use offset from mouse
 			// offset = origin - mouse
@@ -108,7 +121,7 @@ class ImGui {
 			}
 		});
 
-		document.querySelector("canvas").addEventListener("mouseup", (e) => {
+		this.c.addEventListener("mouseup", (e) => {
 			this.checkClick(e.x, e.y, e);
 		});
 
@@ -118,11 +131,11 @@ class ImGui {
 		"Float" : true
 	}
 
-	static text(text, x, y, font="14px sans-serif") {
-		ctx.fillStyle = "white";
-		ctx.font = font;
-		ctx.fillText(text, x, y);
-	}
+	static text(text, x, y, color = "white") {
+    ctx.fillStyle = color;
+    ctx.font = "14px sans-serif";
+    ctx.fillText(text, x, y);
+  }
 
 	checkMove(x, y) {
 		var minX = this.x + TRIG_OFFSET * 5;
@@ -154,6 +167,16 @@ class ImGui {
 		}
 	}
 
+	checkHover(x, y) {
+		var minX = this.x;
+		var minY = this.y;
+		var maxX = this.x + this.width;
+		var maxY = this.y + this.height;
+
+		if (between(x, minX, maxX) && between(y, minY, maxY)) return true;
+		return false;
+	}
+	
 	checkBounding(x, y) {
 		var minX = this.x;
 		var minY = this.y;
@@ -176,6 +199,12 @@ class ImGui {
 		return button;
 	}
 
+	staticText(text = "Placeholder", color = "white") {
+		var staticText = new StaticText(text, color);
+		this.elements.push(staticText);
+		return staticText;
+	}
+
 	slider(min = 0, max = 100, width = 2*this.width/3, init = min, flags) {
 		var slider = new Slider(min, max, width, init, {...flags})
 		this.elements.push(slider);
@@ -190,7 +219,16 @@ class ImGui {
 	}
 
 	init() {
-		this.height = Math.max(this.height, TAB_HEIGHT + GAP + (this.elements.length * (BUTTON_SIZE + GAP)));
+		this.height = Math.max(this.init_height, TAB_HEIGHT + GAP + (this.elements.length * (BUTTON_SIZE + GAP)));
+		// check all text elements for multi-line text and adjust height accordingly.
+		for (var i = 0; i < this.elements.length; i++) {
+			if (this.elements[i].text && this.elements[i].text.includes("\n")) {
+				let lines = this.elements[i].text.split("\n");
+				// Font size dependant
+				this.height += (lines.length - 1) * 14;
+			}
+		}
+
 
 		// loop through all elements and get the longest text to decide width of overall gui.
 		let longest_text = ""
@@ -264,7 +302,19 @@ class ImGui {
 
 			for (var i = 0; i < this.elements.length; i++) {
 				var x = this.x + 10;
-				var y = this.y + TAB_HEIGHT + GAP + i * GAP * 3;
+				// var y = this.y + TAB_HEIGHT + GAP + i * GAP * 3;
+				var y = this.y + TAB_HEIGHT + GAP;
+				// start of y with previous element
+				if (i > 0) {
+					y += this.elements[i-1].y - this.y;
+				}
+				
+				// if multi-line text add more y offset for each line
+				if (i > 0 && this.elements[i-1].text.includes("\n")) {
+					// Once again, font size dependant.
+					y += 14 * (this.elements[i-1].text.split("\n").length - 1);
+				}
+
 				this.elements[i].draw(x, y);
 			}
 			
@@ -384,8 +434,8 @@ class Slider {
 
 	checkClr(x, y) {
     if (
-			between(x, this.x, (this.x + this.width) ) &&
-			between(y, this.y+7, this.y + BUTTON_SIZE * 1.35)
+			between(x, this.x - GAP/2, (this.x + this.width) ) &&
+			between(y, this.y, this.y + BUTTON_SIZE * 1.35)
 		) {
 			return true;
     }
@@ -398,7 +448,7 @@ class Slider {
 		// on mouseup set this.validClick = false
 		// only if this.validClick is true change slide
     if (
-			between(x, this.x, this.slideMax ) &&
+			between(x, this.x - GAP/2, this.slideMax ) &&
 			between(y, this.y, this.y + BUTTON_SIZE * 1.35)
 		) {
 			if (e.type == "mousedown") this.validClick = true;
@@ -408,7 +458,7 @@ class Slider {
 
       this.slidex = 
       Math.min( 
-				Math.max(x, Math.floor(this.slideMin)),
+				Math.max(x+2*BUTTON_SIZE/5, Math.floor(this.slideMin)),
         this.slideMax
       ) - 3*BUTTON_SIZE/5-2-this.x;
 			
@@ -467,7 +517,7 @@ class Button {
 	checkClr(x, y) {
 		// console.log(x,y)
     if (
-			between(x, this.x, this.x + ctx.measureText(this.text).width + GAP * 2 ) &&
+			between(x, this.x, this.x + ctx.measureText(this.text).width + GAP * 2) &&
 			between(y, this.y, this.y + BUTTON_SIZE)
 		) {
 			if (this.color != INTERACTABLE_SELECT) this.color = INTERACTABLE_SELECT_MORE;
@@ -549,6 +599,40 @@ class Checkbox {
 		// do nothing, automatically will refresh on next redraw
 	}
 }
+
+class StaticText {
+	constructor(text, color) {
+		this.x = 0;
+		this.y = 0;
+		this.text = text;
+		this.color = color
+	}
+
+	draw(x, y) {
+		this.x = x;
+		this.y = y;
+
+		// seperate the text by '\n' and draw each line on a new line
+		let lines = this.text.split('\n');
+		for(let i=0; i<lines.length; i++) {
+			// 14px is the height of the font used in ImGui.text()
+			// will make fonts changable in the future
+			ImGui.text(lines[i], x, y + 14 * (i + 1), this.color);
+			// y += 14; // move to the next line
+		}	
+		// ImGui.text(this.text, x, y+14, this.color);
+	}
+
+	check(x, y, e) {
+		return false;
+	}
+
+	refresh() {
+		// do nothing
+	}
+}
+
+window.ImGui = ImGui;
 
 document.addEventListener("contextmenu", function (e) { 
   e.preventDefault(); 

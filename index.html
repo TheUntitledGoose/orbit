@@ -1,5 +1,6 @@
 <html>
   <head>
+    <!-- <script defer src="https://analytics.theuntitledgoose.com/script.js" data-website-id="e6553917-d87e-428f-aa61-f09ff4315db7"></script> -->
   <style>
     body {
       background-color: black;
@@ -14,13 +15,18 @@
 
 import { ImGui } from "./imgui.js"
 
-let imgui = new ImGui(100, 50, 400, 100);
+const c = document.getElementById("myCanvas");
+const ctx = c.getContext("2d");
+
+let imgui = new ImGui(100, 50, 350, 100, c);
 let history = imgui.checkbox("Show History (Reduces Performance)", true);
 let earth_v_checkbox = imgui.checkbox("Show Velocities", true);
 let earth_a_checkbox = imgui.checkbox("Show Labels", true);
 let earth_spawn = imgui.button("Spawn Asteroid");
 let earth_spawn_nonCirc = imgui.button("Spawn Asteroid: Non-Circular Orbit");
 let moon_spawn = imgui.button("Spawn Moon");
+let predict = imgui.button("Predict Orbits");
+let predict_slide = imgui.slider(0, 10_000, undefined, undefined, {text: "Steps"});
 
 imgui.init();
 
@@ -28,10 +34,6 @@ imgui.init();
 document.addEventListener("contextmenu", function (e) { 
   e.preventDefault(); 
 })
-
-
-const c = document.getElementById("myCanvas");
-const ctx = c.getContext("2d");
 
 let windowWidth = window.innerWidth;
 let windowHeight = window.innerHeight;
@@ -75,12 +77,12 @@ let frame_count = 0;
 // const g = 6.637*(10**-4);
 // const g = 0.001;
 
-function calcAcc(ball_, int) {
+function calcAcc(ball_, int, apply = true) {
   for (var j = int+1; j < balls.length; j++) {
     const baller = balls[j];
     // if (baller.check()) continue;
-    let diff = subVec(baller.pos, ball_.pos);
-    
+    let diff = apply ? subVec(baller.pos, ball_.pos) : subVec(baller.futurePos, ball_.futurePos);
+
     let dist = diff[0]**2 + diff[1]**2
 
     if (dist <= ball_.rad*ball_.rad + baller.rad*baller.rad) {
@@ -114,7 +116,7 @@ function calcAcc(ball_, int) {
       // dist, diff = ball.applyCollisions(ball_, baller, dist);
       // diff = subVec(baller.pos, ball_.pos);
     } else {
-      dist = Math.sqrt( (diff[0]**2 + diff[1]**2)  );
+      dist = Math.sqrt( dist );
     }
     
     // get normalized vector
@@ -132,30 +134,74 @@ function calcAcc(ball_, int) {
     
     // F = g * ( m_1 * m_2 ) / r^2
     // const g = 6.637*(10**-11)
+    let x_1acc = 0;
+    let y_1acc = 0;
+    let new_1vel = [];
 
+    let x_2acc = 0;
+    let y_2acc = 0;
+    let new_2vel = [];
+    
     if (!ball_.static) {
-      ball_.acc[0] = normalized_x * g * (baller.mass * inverse_square_dropoff);
-      ball_.acc[1] = normalized_y * g * (baller.mass * inverse_square_dropoff);
+      // Instead of setting acc, and vel, return the values so..
+      // That they could be could be added outside the calculation func.
+
+      x_1acc = normalized_x * g * (baller.mass * inverse_square_dropoff);
+      y_1acc = normalized_y * g * (baller.mass * inverse_square_dropoff);
+
+      if (apply) {
+        ball_.acc[0] = x_1acc;
+        ball_.acc[1] = y_1acc;
+      } else {
+        ball_.futureAcc = [x_1acc, y_1acc];
+      }
 
       // ball_.acc[0] *= dt
       // ball_.acc[1] *= dt
-      ball_.vel = addVec(ball_.acc, ball_.vel);
+
+      new_1vel = addVec(ball_.acc, ball_.vel);
+
+      if (apply) {
+        ball_.vel = new_1vel;
+      } else {
+        ball_.futureVel = new_1vel;
+      }
     }
 
     if (!baller.static) {
-      baller.acc[0] = -normalized_x * g * (ball_.mass * inverse_square_dropoff);
-      baller.acc[1] = -normalized_y * g * (ball_.mass * inverse_square_dropoff);
+      // Instead of setting acc, and vel, return the values so..
+      // That they could be could be added outside the calculation func.
+      x_2acc = -normalized_x * g * (ball_.mass * inverse_square_dropoff);
+      y_2acc = -normalized_y * g * (ball_.mass * inverse_square_dropoff);
+
+      if (apply) {
+        baller.acc[0] = x_2acc;
+        baller.acc[1] = y_2acc;
+      } else {
+        baller.futureAcc = [x_2acc, y_2acc];
+      }
 
       // baller.acc[0] *= dt
       // baller.acc[1] *= dt
-      baller.vel = addVec(baller.acc, baller.vel);
+
+      new_2vel = addVec(baller.acc, baller.vel);
+
+      if (apply) {
+        baller.vel = new_2vel;
+      } else {
+        baller.futureVel = new_2vel;
+      }
+      
     }
   }
+  // If last body, return undefined for all values, since it crashes otherwise
+  // return [undefined,undefined,undefined,undefined]
 }
 
 class ball {
 	constructor(x=0,y=0,stat=false,mass=1,vel=[0,0],rad=1,clr="white",grav_=0) {
     this.history = [];
+    this.futureHist = [];
     
     this.rad = rad;
     this.clr = clr;
@@ -167,9 +213,14 @@ class ball {
     
     this.mass = mass;
     this.static = stat;
+
     this.pos = [x, y];
     this.vel = vel;
     this.acc = [0, 0];
+
+    this.futurePos = [x, y];
+    this.futureVel = vel;
+    this.futureAcc = [0, 0];
 
     this.history_toggle = true;
     this.history_length = 5000
@@ -221,20 +272,25 @@ class ball {
 
   }
 
-  update(i) {
+  update(i, apply = true) {
     // if(this.static) return;
     // this.acc = [0,0];
     this.clr_hsl = 0
     // if(!this.check()) {
-      calcAcc(this, i);
+    calcAcc(this, i, apply);
     // }
+    // console.log(a1, v1, a2, v2)
 
-    // this.vel = addVec(this.acc, this.vel);
-
+    if (!apply) {
+      // If not apply, then predict
+      this.futurePos = addVec(this.futureVel, this.futurePos)
+    } 
     this.pos = addVec(this.vel, this.pos);
+    
+    // this.vel = addVec(this.acc, this.vel)
 
-    this.pos[0] = parseFloat(this.pos[0].toPrecision(15))
-    this.pos[1] = parseFloat(this.pos[1].toPrecision(15))
+    // this.pos[0] = parseFloat(this.pos[0].toPrecision(15))
+    // this.pos[1] = parseFloat(this.pos[1].toPrecision(15))
     
     if (frame_count % 10 == 0) {
       this.history.push(this.pos);
@@ -643,6 +699,18 @@ function animate() {
   // console.log(earth_v_checkbox.state)
   // console.log(earth_a_checkbox.state)
 
+  if (predict.state) {
+    // Pause the simulation to allow orbit prediction
+    pause = true;
+
+    // Initiate the loop for orbit prediction using the steps in slider
+    for (var i = 0; i < predict_slide.state; i++) {
+      const ball = balls[i];
+      ball.history_toggle = history.state
+      ball.update(i, false);
+    }
+  }
+
   if (earth_spawn.state) {
 
     spawn((Math.random()*1_000_0.00)+50_3.57, 1, "gray", balls[0], 1)
@@ -671,7 +739,7 @@ function animate() {
   for (var i = 0; i < balls.length; i++) {
     const ball = balls[i];
     ball.history_toggle = history.state
-    if (!pause) ball.update(i);
+    if (!pause) ball.update(i, true);
     ball.draw();
     if (i == 1) continue
     ball.velocity_v = earth_v_checkbox.state
