@@ -18,18 +18,25 @@ import { ImGui } from "./imgui.js"
 const c = document.getElementById("myCanvas");
 const ctx = c.getContext("2d");
 
-let imgui = new ImGui(100, 50, 350, 100, c);
+let imgui = new ImGui(100, 50, 400, 100, c);
+
+imgui.staticText("UI")
 let history = imgui.checkbox("Show History (Reduces Performance)", true);
-let pred_history = imgui.checkbox("Show Prediction History (Reduces Performance)", true);
+let pred_history = imgui.checkbox("Show Predictions (Reduces Performance)", true);
 
 let earth_v_checkbox = imgui.checkbox("Show Velocities", true);
 let earth_a_checkbox = imgui.checkbox("Show Labels", true);
 
+imgui.staticText("")
+imgui.staticText("Spawn")
 let earth_spawn = imgui.button("Spawn Asteroid");
 let earth_spawn_nonCirc = imgui.button("Spawn Asteroid: Non-Circular Orbit");
 let moon_spawn = imgui.button("Spawn Moon");
 
+imgui.staticText("")
+imgui.staticText("N-Body Prediction")
 let predict = imgui.button("Predict Orbits");
+let pred_toggle = imgui.checkbox("Toggle Continuous Prediction (Reduces Performance)", false);
 let predict_slide = imgui.slider(0, 10_000, 250, 500, {text: "Steps"});
 let predicted = 0;
 
@@ -90,7 +97,7 @@ function calcAcc(ball_, int, apply = true) {
 
     let dist = diff[0]**2 + diff[1]**2
 
-    if (dist <= ball_.rad*ball_.rad + baller.rad*baller.rad) {
+    if (dist <= ball_.rad*ball_.rad + baller.rad*baller.rad && apply) {
 
       // dist = Math.sqrt( (diff[0]**2 + diff[1]**2)  );
 
@@ -701,7 +708,7 @@ function animate() {
   // console.log(earth_v_checkbox.state)
   // console.log(earth_a_checkbox.state)
 
-  if (predict.state) {
+  if ((predict.state || (pred_toggle.state && frame_count % 10 == 0)) && !pause) {
     // Pause the simulation to allow orbit prediction
     // pause = true;
 

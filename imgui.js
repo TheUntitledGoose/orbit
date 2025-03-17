@@ -54,10 +54,12 @@ function clip_rect(x, y, w, h) {
 }
 
 function circ(x, y, r, c) {
+	var f = ctx.fillStyle;
 	ctx.beginPath();
 	ctx.fillStyle = c;
 	ctx.arc(x, y, r, 0, 2 * Math.PI);
 	ctx.fill();
+	ctx.fillStyle = f;
 }
 
 const between = (x, min, max) => {
