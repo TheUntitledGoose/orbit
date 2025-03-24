@@ -9,7 +9,7 @@
     }
   </style>
 </head>
-  <body><canvas id="myCanvas" width="1280" height="607" style="filter: drop-shadow(0px 0px 350px white);"></canvas> 
+  <body><canvas id="myCanvas" width="1280" height="607"></canvas> 
 <script> 
 const c = document.getElementById("myCanvas");
 const ctx = c.getContext("2d");
@@ -362,9 +362,11 @@ function make_ball(radius, size, position, min=0, ball_gravity = 100, ball_vel=[
   // balls.push(new ball(ball_1[0],ball_1[1], static, core_gravity, core_vel, 3, "white"));
 }
 
+let ball_amount = 5_000;
+
 make_galaxy(
   1,  // radius
-  5_000,  // amount
+  ball_amount,  // amount
   [windowWidth/2, windowHeight/2], // position
   10, // min distance of inner ring
   10**11, // core gravity
@@ -372,85 +374,6 @@ make_galaxy(
   true, // static
   true // skew
 )
-
-// make_galaxy(
-//   50,  // radius
-//   500,  // amount
-//   [windowWidth/4, windowHeight/2], // position
-//   1, // min distance of inner ring
-//   10**11, // core gravity
-//   [.25,-.01], //  // core velocity
-//   false
-// )
-  
-// make_ball(
-//   500,  // radius
-//   500,  // amount
-//   [windowWidth/2, windowHeight/2], // position
-//   0, // min distance of inner ring
-//   10**9, // core gravity
-//   [0,0], //  // core velocity
-//   false, // static
-//   false, // random vel offset
-//   1.5, // skew
-// )
-
-// make_ball(
-//   500,  // radius
-//   500,  // amount
-//   [windowWidth/4, windowHeight/2], // position
-//   0, // min distance of inner ring
-//   1000, // core gravity
-//   [0,0], //  // core velocity
-//   true // static
-// )
-
-// make_galaxy(
-//   200,  // radius
-//   0,  // amount
-//   [windowWidth/2+100, windowHeight/2], // position
-//   100, // min distance of inner ring
-//   500, // core gravity
-//   [0,1], //  // core velocity
-//   false // static
-// )
-
-// make_galaxy(
-//   200,  // radius
-//   0,  // amount
-//   [windowWidth/2-100, windowHeight/2], // position
-//   100, // min distance of inner ring
-//   500, // core gravity
-//   [0,-1], //  // core velocity
-//   false // static
-// )
-
-// make_galaxy(
-//   200,  // radius
-//   500,  // amount
-//   [windowWidth/2, windowHeight/2], // position
-//   500, // min distance of inner ring
-//   150, // core gravity
-//   [0,0], //  // core velocity
-//   true // static
-// )
-
-
-// new_ball(windowWidth/2-50, windowHeight/2, false, 100, [0.0,-.5], 10, "white")
-// new_ball(windowWidth/2+50, windowHeight/2, false, 100, [0.0, .5],  10, "white")
-
-// new_ball(300, windowHeight/2, false, 1, [0,0],  3, "white")
-
-
-// make_galaxy(
-//   50,  // radius
-//   300,  // amount
-//   [windowWidth/4, windowHeight/2], // position
-//   50, // min distance of inner ring
-//   100, // core gravity
-//   [.01,.01] // core velocity
-// )
-
 
 class visual {
   constructor(x,y) {
@@ -530,8 +453,8 @@ document.addEventListener('mousedown', (e) => {
   mx = e.x;
   my = e.y;
   if (!mouse) {
-    balls.push(new ball(mx,my, true, 10**11, [0,0], 5, "white"));
-    mouse = true;
+    // balls.push(new ball(mx,my, true, 10**11, [0,0], 5, "white"));
+    // mouse = true;
   }
 })
 
@@ -547,6 +470,27 @@ document.addEventListener('mouseup', (e) => {
   if (mouse) balls.pop();
   mouse = false;
 })
+
+window.wallpaperPropertyListener = {
+    applyUserProperties: function(properties) {
+        if (properties.bodies) {
+            ball_amount = properties.bodies.value;
+            
+            balls = []
+            
+            make_galaxy(
+              1,  // radius
+              ball_amount,  // amount
+              [windowWidth/2, windowHeight/2], // position
+              10, // min distance of inner ring
+              10**11, // core gravity
+              [0,0], //  // core velocity
+              true, // static
+              true // skew
+            )
+        }
+    },
+};
 
 window.requestAnimationFrame(animate);
 
