@@ -2,12 +2,21 @@
   <head>
     <!-- <script defer src="https://analytics.theuntitledgoose.com/script.js" data-website-id="e6553917-d87e-428f-aa61-f09ff4315db7"></script> -->
   <style>
+    html, body {
+      touch-action: none; /* Disables touch gestures, including zooming */
+    }
+
+    canvas {
+      touch-action: none;
+    }
+
     body {
       background-color: black;
       overflow: hidden;
       margin: 0;
     }
   </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 </head>
   <body><canvas id="myCanvas" width="1280" height="607"></canvas> 
 <script src="imgui.js"></script>
@@ -20,15 +29,17 @@ const ctx = c.getContext("2d");
 
 let imgui = new ImGui(100, 50, 400, 100, c);
 
+let fps = imgui.staticText("FPS: 0")
+
 imgui.staticText("UI")
 let history = imgui.checkbox("Show History (Reduces Performance)", true);
 let pred_history = imgui.checkbox("Show Predictions (Reduces Performance)", true);
 
-let earth_v_checkbox = imgui.checkbox("Show Velocities", true);
+let earth_v_checkbox = imgui.checkbox("Show Velocities", false);
 let earth_a_checkbox = imgui.checkbox("Show Labels", true);
 
 imgui.staticText("")
-imgui.staticText("Spawn")
+imgui.staticText("Spawn (Lock onto body first)")
 let earth_spawn = imgui.button("Spawn Asteroid");
 let earth_spawn_nonCirc = imgui.button("Spawn Asteroid: Non-Circular Orbit");
 let moon_spawn = imgui.button("Spawn Moon");
@@ -40,6 +51,9 @@ let pred_toggle = imgui.checkbox("Toggle Continuous Prediction (Reduces Performa
 let predict_slide = imgui.slider(0, 10_000, 250, 500, {text: "Steps"});
 let predicted = 0;
 
+imgui.staticText("")
+let dt_slider = imgui.slider(1, 100, 300, 1, {text: "Speedup"});
+
 imgui.init();
 
 
@@ -50,12 +64,13 @@ document.addEventListener("contextmenu", function (e) {
 let windowWidth = window.innerWidth;
 let windowHeight = window.innerHeight;
 
-let scale = 0.1;
+let scale = 0.0005;
 let originX = windowWidth/2;
 let originY = windowHeight/2;
 
 let pause = false;
 
+let lastTick = Date.now();
 
 c.height = windowHeight;
 c.width = windowWidth;
@@ -79,12 +94,12 @@ function mulVector(vec1, vec2) {
 }
 
 const distance_factor = 1;
-const g = 6.637*(10**-17); // 6.637 * 10**-11 ; -23/-21 when changed by 10^6  (10^6)^2  like the r^2
-const small_body_mass = 10**13;
+const g = (6.637*(10**-17)); // 6.637 * 10**-11 ; -23/-21 when changed by 10^6  (10^6)^2  like the r^2
+const small_body_mass = 10**13; // earth is 10^24, so reduce by 10^11
 const coeff = 1;
 
 let frame_count = 0;
-// let dt = 1; // time-step ; 1 = normal
+let dt = 1;
 // const g = 6.637*(10**-11); // real
 // const g = 6.637*(10**-4);
 // const g = 0.001;
@@ -171,7 +186,7 @@ function calcAcc(ball_, int, apply = true) {
 
 
       if (apply) {
-        ball_.vel = addVec(ball_.acc, ball_.vel);
+        ball_.vel = addVec(mulVector(ball_.acc, [dt,dt]), ball_.vel);
       } else {
         ball_.futureVel = addVec(ball_.futureAcc, ball_.futureVel);
       }
@@ -194,7 +209,7 @@ function calcAcc(ball_, int, apply = true) {
       // baller.acc[1] *= dt
 
       if (apply) {
-        baller.vel = addVec(baller.acc, baller.vel);
+        baller.vel = addVec(mulVector(baller.acc, [dt,dt]), baller.vel);
       } else {
         baller.futureVel = addVec(baller.futureAcc, baller.futureVel);
       }
@@ -294,7 +309,7 @@ class ball {
       if (frame % 10 == 0) this.futureHist.push(this.futurePos);
       return
     } else {
-      this.pos = addVec(this.vel, this.pos);
+      this.pos = addVec(mulVector(this.vel, [dt, dt]), this.pos);
     }
     
     // this.vel = addVec(this.acc, this.vel)
@@ -318,7 +333,7 @@ class ball {
       if (this.history.length > 0) {
         ctx.beginPath();
         ctx.lineWidth = 2.5*1/scale;
-        if (isLocked == true) {
+        if (isLocked == true && balls[lockedBallIndex].history.length > 0) {
           ctx.moveTo(
             this.history[0][0] - balls[lockedBallIndex].history[0][0] + (balls[lockedBallIndex].pos[0]),
             this.history[0][1] - balls[lockedBallIndex].history[0][1] + (balls[lockedBallIndex].pos[1])
@@ -385,12 +400,12 @@ class ball {
     //   ctx.fill();
     // }
 
-    if (this.text != "") {
-      ImGui.text(
-        this.text,
-        this.pos[0] + 10, this.pos[1]+this.rad
-      )
-    }
+    // if (this.text != "") {
+    //   ImGui.text(
+    //     this.text,
+    //     this.pos[0] + 10, this.pos[1]+this.rad
+    //   )
+    // }
 
     if (this.velocity_v && !this.static) {
       ctx.beginPath();
@@ -410,6 +425,15 @@ class ball {
       // )
     }
 
+  }
+
+  drawText() {
+    ImGui.text(
+      this.text,
+      ((this.pos[0]+this.rad)*scale+originX),
+      ((this.pos[1]+this.rad/2)*scale+originY),
+      "18px sans-serif"
+    )
   }
 
   drawPred() {
@@ -546,104 +570,28 @@ make_galaxy(
 */
 
 // const sun_mass = 10**13; // sun mass: 1.989e+30 kg
-const sun_mass = 1.989**25; // sun mass: 1.989e+30 kg : 25
+const sun_mass = 1.989**70; // sun mass: 1.989e+30 kg : 25
 
-make_galaxy(
-  0,  // radius
-  1,  // amount
-  [windowWidth/2, windowHeight/2], // position
-  149_600_0.00, // min distance of inner ring // Earth orbit rad: 149,600,000 km
-  // 149_600_0.00, // min distance of inner ring // Earth orbit rad: 149,600,000 km
-  sun_mass, // core gravity
-  [0,0], //  // core velocity
-  true, // static
-  6_3.57, //rad of small bodies //6,357,000 earth radius : 15
-  695_7.00, //rad of big bodies // sun radius: 695,700,000 : 30
-  "yellow", //clr of big bodies
-  "green", //clr of small bodies
-  // small_body_mass, // mass of small bodies. earth mass: 5.972e+24 kg 
-  5.972*(10**19), // mass of small bodies. earth mass: 5.972e+24 kg
-)
-
+// initial spawn of earth and sun, keeping this here for "if it aint broke, dont fix it"
 // make_galaxy(
-//   50,  // radius
-//   500,  // amount
-//   [windowWidth/4, windowHeight/2], // position
-//   1, // min distance of inner ring
-//   10**11, // core gravity
-//   [.25,-.01], //  // core velocity
-//   false
+//   0,  // radius
+//   1,  // amount
+//   [windowWidth/2, windowHeight/2], // position
+//   149_600_0.00, // min distance of inner ring // Earth orbit rad: 149,600,000 km
+//   // 149_600_0.00, // min distance of inner ring // Earth orbit rad: 149,600,000 km
+//   sun_mass, // core gravity
+//   [0,0], //  // core velocity
+//   true, // static
+//   6_3.57, //rad of small bodies //6,357,000 m earth radius : 15
+//   695_7.00, //rad of big bodies // sun radius: 695,700,000 : 30
+//   "yellow", //clr of big bodies
+//   "green", //clr of small bodies
+//   // small_body_mass, // mass of small bodies. earth mass: 5.972e+24 kg 
+//   5.972*(10**19), // mass of small bodies. earth mass: 5.972e+24 kg
 // )
+
+function spawn(min=100, r=5, clr="gray", ball_, mass=small_body_mass) { 
   
-// make_ball(
-//   200,  // radius
-//   500,  // amount
-//   [windowWidth/2, windowHeight/2], // position
-//   0, // min distance of inner ring
-//   small_body_gravity, // core gravity
-//   [0,0], //  // core velocity
-//   false, // static
-//   true, // random vel offset / rotate
-//   1.5, // skew
-// )
-
-// make_ball(
-//   500,  // radius
-//   500,  // amount
-//   [windowWidth/4, windowHeight/2], // position
-//   0, // min distance of inner ring
-//   1000, // core gravity
-//   [0,0], //  // core velocity
-//   true // static
-// )
-
-// make_galaxy(
-//   200,  // radius
-//   0,  // amount
-//   [windowWidth/2+100, windowHeight/2], // position
-//   100, // min distance of inner ring
-//   500, // core gravity
-//   [0,1], //  // core velocity
-//   false // static
-// )
-
-// make_galaxy(
-//   200,  // radius
-//   0,  // amount
-//   [windowWidth/2-100, windowHeight/2], // position
-//   100, // min distance of inner ring
-//   500, // core gravity
-//   [0,-1], //  // core velocity
-//   false // static
-// )
-
-// make_galaxy(
-//   200,  // radius
-//   500,  // amount
-//   [windowWidth/2, windowHeight/2], // position
-//   500, // min distance of inner ring
-//   150, // core gravity
-//   [0,0], //  // core velocity
-//   true // static
-// )
-
-
-// new_ball(windowWidth/2-50, windowHeight/2, false, 100, [0.0,-.5], 10, "white")
-// new_ball(windowWidth/2+50, windowHeight/2, false, 100, [0.0, .5],  10, "white")
-
-// new_ball(300, windowHeight/2, false, 1, [0,0],  3, "white")
-
-
-// make_galaxy(
-//   50,  // radius
-//   300,  // amount
-//   [windowWidth/4, windowHeight/2], // position
-//   50, // min distance of inner ring
-//   100, // core gravity
-//   [.01,.01] // core velocity
-// )
-
-function spawn(min=100, r=5, clr="gray", ball_=balls[1], mass=small_body_mass) { 
   // const min = 100
   // const rad = Math.random()*100
   const radian_angle = Math.random()*TWO_PI;
@@ -658,28 +606,72 @@ function spawn(min=100, r=5, clr="gray", ball_=balls[1], mass=small_body_mass) {
     angle[0]*(circle_distance),
     angle[1]*(circle_distance),
   ]
-
-  console.log(circle_distance)
-
-  var grav_ = Math.sqrt( (g*ball_.mass)/(min) )
-  console.log(ball_.mass,ball_.vel[0])
-
+  
+  // console.log(circle_distance)
+  
+  let grav_ = 0;
+  if (ball_) {
+    grav_ = Math.sqrt( (g*ball_.mass)/(min) )
+    // console.log(ball_.mass,ball_.vel[0])
+  }
+  
   return balls.push(new ball(
-    offset[0]+ball_.pos[0],
-    offset[1]+ball_.pos[1],
+    ball_ ? offset[0]+ball_.pos[0] : offset[0],
+    ball_ ? offset[1]+ball_.pos[1] : offset[1],
     false,
     mass,
     // (Math.random()*(10**9))+10**7,
     [
-      ((Math.sin(radian_angle)))*grav_+ball_.vel[0],
-      (-(Math.cos(radian_angle)))*grav_+ball_.vel[1],
+      ball_ ? ((Math.sin(radian_angle)))*grav_+ball_.vel[0] : ((Math.sin(radian_angle))),
+      ball_ ? (-(Math.cos(radian_angle)))*grav_+ball_.vel[1] : (-(Math.cos(radian_angle)))
     ],
     r, //rad
     clr,
-    grav_
+    ball_ ? grav_ : 0
   ));
-
+  
 }
+
+// actually make the other planets via spawn function.
+// they have the original values but scaled down.
+
+// sun
+balls[balls.push(new ball(windowWidth/2, windowHeight/2, true, sun_mass, [0,0], 695_7.00, "yellow"))-1].text = "Sun";
+
+
+// Mercury
+balls[spawn(57.91e6/100, 2.44e6/100_000, "gray", balls[0], 3.285e23/10^11)-1].text = "Mercury";
+// Venus
+balls[spawn(108.2e6/100, 6.05e6/100_000, "orange", balls[0], 4.87e24/10^11)-1].text = "Venus";
+// Earth
+balls[spawn(149.6e6/100, 1.496e7/100_000, "green", balls[0], 5.97e24/10^11)-1].text = "Earth";
+// Mars
+const mars = spawn(227.9e6/100, 3.39e6/100_000, "red", balls[0], 6.42e23/10^11)
+balls[mars-1].text = "Mars";
+// Mars - Phobos
+balls[spawn(9.4e3/100, 11.1/100_000, "gray", balls[mars-1], 1.065e16/10^11)-1].text = "Phobos";
+// Mars - Deimos
+balls[spawn(23.5e3/100, 6.2/100_000, "gray", balls[mars-1], 4.4e15/10^11)-1].text = "Deimos";
+
+// Jupiter
+const jupiter = spawn(778.3e6/100, 7.149e7/100_000, "brown", balls[0], 1.9e27/10^11)
+balls[jupiter-1].text = "Jupiter";
+// Jupiter - Io
+balls[spawn(421.8e3/100, 1.82e6/100_000, "yellow", balls[jupiter-1], 8.93e22/10^11)-1].text = "Io";
+// Jupiter - Europa
+balls[spawn(670.9e3/100, 1.56e6/100_000, "white", balls[jupiter-1], 4.8e22/10^11)-1].text = "Europa";
+// Jupiter - Ganymede
+balls[spawn(1.070e6/100, 2.63e6/100_000, "gray", balls[jupiter-1], 1.4819e23/10^11)-1].text = "Ganymede";
+// Jupiter - Callisto
+balls[spawn(1.882e6/100, 2.41e6/100_000, "gray", balls[jupiter-1], 1.0759e23/10^11)-1].text = "Callisto";
+
+// Saturn
+balls[spawn(1.429e9/100, 6.027e7/100_000, "yellow", balls[0], 5.68e26/10^11)-1].text = "Saturn";
+// Uranus
+balls[spawn(4.5e9/100, 2.556e7/100_000, "cyan", balls[0], 8.68e25/10^11)-1].text = "Uranus";
+// Neptune
+balls[spawn(5.9e9/100, 2.474e7/100_000, "lightblue", balls[0], 1.02e26/10^11)-1].text = "Neptune";
+
 
 // imgui.width = 350;
 function animate() {
@@ -687,6 +679,8 @@ function animate() {
 	// ctx.fillRect(0, 0, windowWidth, windowHeight);
   ctx.save();
 	ctx.clearRect(0, 0, windowWidth, windowHeight);
+
+  dt = dt_slider.state;
 
   if (isLocked && lockedBallIndex !== -1 && balls[lockedBallIndex]) {
     // Ensure the locked ball is centered
@@ -708,7 +702,7 @@ function animate() {
   // console.log(earth_v_checkbox.state)
   // console.log(earth_a_checkbox.state)
 
-  if ((predict.state || (pred_toggle.state && frame_count % 10 == 0)) && !pause) {
+  if (predict.state || (pred_toggle.state && frame_count % 10 == 0)) {
     // Pause the simulation to allow orbit prediction
     // pause = true;
 
@@ -751,12 +745,12 @@ function animate() {
     earth_spawn_nonCirc.state = false;
   }
   
-  if (moon_spawn.state) {
+  if (moon_spawn.state && isLocked) {
 
     // moon orbit rad: 384,400 km : 250
     // moon radius 1,737.5 km : 5
     // moon mass: 7.348e+22 kg : 0
-    spawn(384_4.00, 1_7.35, "gray", balls[0], 7.348*(10**16))
+    spawn(384_4.00, 1_7.35, "gray", balls[lockedBallIndex], 7.348*(10**16)/10^11)
 
     moon_spawn.state = false;
   }
@@ -784,12 +778,16 @@ function animate() {
     for (var i = 0; i < balls.length; i++) {
       const ball = balls[i];
       // if (scale <= 0.1) {
-        ImGui.text(
-          `Planet #${i+1}`,
-          ((ball.pos[0]+ball.rad)*scale+originX),
-          ((ball.pos[1]+ball.rad/2)*scale+originY),
-          "18px sans-serif"
-        )
+        if (!ball.text) {
+          ImGui.text(
+            `Object #${i+1}`,
+            ((ball.pos[0]+ball.rad)*scale+originX),
+            ((ball.pos[1]+ball.rad/2)*scale+originY),
+            "18px sans-serif"
+          )
+        } else {
+          ball.drawText()
+        }
       // }
     }
   }
@@ -800,6 +798,20 @@ function animate() {
   if (frame_count >= 60) frame_count = 0
 
   if (!pause) predicted--;
+
+  // Frame rate
+  // const tick = Date.now();
+
+  // fps.text = ("FPS: " + 
+  //   (
+  //     1/
+  //     (
+  //       (tick - lastTick)/1000
+  //     )
+  //   )
+  //   .toString().split('.')[0]) 
+  
+  // lastTick = tick;
 
   window.requestAnimationFrame(animate);
 }
@@ -883,7 +895,7 @@ document.addEventListener("wheel", (e) => {
   // Adjust scale
   const newScale = Math.min(
     Math.max(
-      delta < 0 ? scale * zoomFactor : scale / zoomFactor, 0.0001), 1000000);
+      delta < 0 ? scale * zoomFactor : scale / zoomFactor, 0.00001), 1_000_000);
 
   
 
@@ -910,11 +922,13 @@ document.addEventListener("keydown", (e) => {
 
   // left arrow 37, slowdown sim; right 39, speedup sim;
   // if (e.keyCode == 37) {
-  //   dt /= 10;
+  //   dt -= 10;
   // }
   // if (e.keyCode == 39) {
-  //   dt *= 10;
+  //   dt += 10;
   // }
+
+  // if (dt < 0) dt = 0
 })
 
 // Implement touch at somepoint
