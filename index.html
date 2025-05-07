@@ -48,11 +48,10 @@ imgui.staticText("")
 imgui.staticText("N-Body Prediction")
 let predict = imgui.button("Predict Orbits");
 let pred_toggle = imgui.checkbox("Toggle Continuous Prediction (Reduces Performance)", false);
+let unsafe_toggle  = imgui.checkbox("Unsafe values count (Reduces Performance)", false, "red");
 let predict_slide = imgui.slider(0, 10_000, 250, 500, {text: "Steps"});
 let predicted = 0;
-
-imgui.staticText("")
-let dt_slider = imgui.slider(1, 100, 300, 1, {text: "Speedup"});
+let dt_slider = imgui.slider(0.0000001, 2, 300, 1, {text: "Speedup", float: true});
 
 imgui.init();
 
@@ -94,7 +93,7 @@ function mulVector(vec1, vec2) {
 }
 
 const distance_factor = 1;
-const g = (6.637*(10**-17)); // 6.637 * 10**-11 ; -23/-21 when changed by 10^6  (10^6)^2  like the r^2
+const g = (6.637*(10**-15)); // 6.637 * 10**-11 ; -23/-21 when changed by 10^6  (10^6)^2  like the r^2
 const small_body_mass = 10**13; // earth is 10^24, so reduce by 10^11
 const coeff = 1;
 
@@ -175,8 +174,7 @@ function calcAcc(ball_, int, apply = true) {
       y_1acc = normalized_y * g * (baller.mass * inverse_square_dropoff);
 
       if (apply) {
-        ball_.acc[0] = x_1acc;
-        ball_.acc[1] = y_1acc;
+        ball_.acc = [x_1acc, y_1acc];
       } else {
         ball_.futureAcc = [x_1acc, y_1acc];
       }
@@ -199,8 +197,7 @@ function calcAcc(ball_, int, apply = true) {
       y_2acc = -normalized_y * g * (ball_.mass * inverse_square_dropoff);
 
       if (apply) {
-        baller.acc[0] = x_2acc;
-        baller.acc[1] = y_2acc;
+        baller.acc = [x_2acc, y_2acc];
       } else {
         baller.futureAcc = [x_2acc, y_2acc];
       }
@@ -306,7 +303,7 @@ class ball {
     if (!apply) {
       // If not apply, then predict
       this.futurePos = addVec(this.futureVel, this.futurePos)
-      if (frame % 10 == 0) this.futureHist.push(this.futurePos);
+      if (frame % Math.floor(Math.max(predict_slide.state/100_000, 10)) == 0) this.futureHist.push(this.futurePos);
       return
     } else {
       this.pos = addVec(mulVector(this.vel, [dt, dt]), this.pos);
@@ -570,7 +567,7 @@ make_galaxy(
 */
 
 // const sun_mass = 10**13; // sun mass: 1.989e+30 kg
-const sun_mass = 1.989**70; // sun mass: 1.989e+30 kg : 25
+const sun_mass = 1.989e30; // sun mass: 1.989e+30 kg 
 
 // initial spawn of earth and sun, keeping this here for "if it aint broke, dont fix it"
 // make_galaxy(
@@ -609,7 +606,8 @@ function spawn(min=100, r=5, clr="gray", ball_, mass=small_body_mass) {
   
   // console.log(circle_distance)
   
-  let grav_ = 0;
+  // debugger
+  let grav_ = 1;
   if (ball_) {
     grav_ = Math.sqrt( (g*ball_.mass)/(min) )
     // console.log(ball_.mass,ball_.vel[0])
@@ -635,42 +633,52 @@ function spawn(min=100, r=5, clr="gray", ball_, mass=small_body_mass) {
 // actually make the other planets via spawn function.
 // they have the original values but scaled down.
 
+const scale_modifer = 1;
+
 // sun
-balls[balls.push(new ball(windowWidth/2, windowHeight/2, true, sun_mass, [0,0], 695_7.00, "yellow"))-1].text = "Sun";
+balls[balls.push(new ball(windowWidth/2, windowHeight/2, true, 1.989e30, [0,0], 695_508e3/10e3, "yellow"))-1].text = "Sun";
 
 
 // Mercury
-balls[spawn(57.91e6/100, 2.44e6/100_000, "gray", balls[0], 3.285e23/10^11)-1].text = "Mercury";
+balls[spawn(57.91e6/scale_modifer, 2.44e3/scale_modifer, "gray", balls[0], 3.285e23)-1].text = "Mercury";
+
 // Venus
-balls[spawn(108.2e6/100, 6.05e6/100_000, "orange", balls[0], 4.87e24/10^11)-1].text = "Venus";
+balls[spawn(108.2e6/scale_modifer, 6.052e3/scale_modifer, "orange", balls[0], 4.87e24)-1].text = "Venus";
+
 // Earth
-balls[spawn(149.6e6/100, 1.496e7/100_000, "green", balls[0], 5.97e24/10^11)-1].text = "Earth";
+const earth = spawn(149.6e6/scale_modifer, 6.378e3/scale_modifer, "green", balls[0], 5.97e24);
+balls[earth-1].text = "Earth";
+  // Earth - Moon
+  balls[spawn(384.4e3/scale_modifer, 1.737e3/scale_modifer, "grey", balls[earth-1], 7.35e22)-1].text = "Moon";
+
 // Mars
-const mars = spawn(227.9e6/100, 3.39e6/100_000, "red", balls[0], 6.42e23/10^11)
+const mars = spawn(227.9e6/scale_modifer, 3.397e3/scale_modifer, "red", balls[0], 6.42e23)
 balls[mars-1].text = "Mars";
-// Mars - Phobos
-balls[spawn(9.4e3/100, 11.1/100_000, "gray", balls[mars-1], 1.065e16/10^11)-1].text = "Phobos";
-// Mars - Deimos
-balls[spawn(23.5e3/100, 6.2/100_000, "gray", balls[mars-1], 4.4e15/10^11)-1].text = "Deimos";
+  // Mars - Phobos
+  balls[spawn(9.378e3/scale_modifer, 11.1/scale_modifer, "gray", balls[mars-1], 1.065e16)-1].text = "Phobos";
+  // Mars - Deimos
+  balls[spawn(23.5e3/scale_modifer, 6.2/scale_modifer, "gray", balls[mars-1], 4.4e15)-1].text = "Deimos";
 
 // Jupiter
-const jupiter = spawn(778.3e6/100, 7.149e7/100_000, "brown", balls[0], 1.9e27/10^11)
+const jupiter = spawn(778.3e6/scale_modifer, 71.492e3/scale_modifer, "brown", balls[0], (1.9e27))
 balls[jupiter-1].text = "Jupiter";
-// Jupiter - Io
-balls[spawn(421.8e3/100, 1.82e6/100_000, "yellow", balls[jupiter-1], 8.93e22/10^11)-1].text = "Io";
-// Jupiter - Europa
-balls[spawn(670.9e3/100, 1.56e6/100_000, "white", balls[jupiter-1], 4.8e22/10^11)-1].text = "Europa";
-// Jupiter - Ganymede
-balls[spawn(1.070e6/100, 2.63e6/100_000, "gray", balls[jupiter-1], 1.4819e23/10^11)-1].text = "Ganymede";
-// Jupiter - Callisto
-balls[spawn(1.882e6/100, 2.41e6/100_000, "gray", balls[jupiter-1], 1.0759e23/10^11)-1].text = "Callisto";
+  // Jupiter - Io
+  balls[spawn(421.7e3/scale_modifer, 1.82e3/scale_modifer, "yellow", balls[jupiter-1], (8.93e22))-1].text = "Io";
+  // Jupiter - Europa
+  balls[spawn(670.9e3/scale_modifer, 1.56e3/scale_modifer, "white", balls[jupiter-1], 4.8e22)-1].text = "Europa";
+  // Jupiter - Ganymede
+  balls[spawn(1_070e3/scale_modifer, 2.63e3/scale_modifer, "gray", balls[jupiter-1], 1.4819e23)-1].text = "Ganymede";
+  // Jupiter - Callisto
+  balls[spawn(1_882e3/scale_modifer, 2.41e3/scale_modifer, "gray", balls[jupiter-1], 1.0759e23)-1].text = "Callisto";
 
 // Saturn
-balls[spawn(1.429e9/100, 6.027e7/100_000, "yellow", balls[0], 5.68e26/10^11)-1].text = "Saturn";
+balls[spawn(1_429e6/scale_modifer, 60.268e3/scale_modifer, "yellow", balls[0], 5.68e26)-1].text = "Saturn";
+
 // Uranus
-balls[spawn(4.5e9/100, 2.556e7/100_000, "cyan", balls[0], 8.68e25/10^11)-1].text = "Uranus";
+balls[spawn(2_871e6/scale_modifer, 25.559e3/scale_modifer, "cyan", balls[0], 8.68e25)-1].text = "Uranus";
+
 // Neptune
-balls[spawn(5.9e9/100, 2.474e7/100_000, "lightblue", balls[0], 1.02e26/10^11)-1].text = "Neptune";
+balls[spawn(4_498e6/scale_modifer, 24.764e3/scale_modifer, "lightblue", balls[0], 1.02e26)-1].text = "Neptune";
 
 
 // imgui.width = 350;
@@ -681,6 +689,16 @@ function animate() {
 	ctx.clearRect(0, 0, windowWidth, windowHeight);
 
   dt = dt_slider.state;
+
+  if (unsafe_toggle.state) {
+    pred_toggle.state = false;
+    predict_slide.max = 1_000_000;
+    // dt_slider.max = 100;
+  } else {
+    predict_slide.max = 10_000;
+    // dt_slider.max = 10;
+  }
+
 
   if (isLocked && lockedBallIndex !== -1 && balls[lockedBallIndex]) {
     // Ensure the locked ball is centered
@@ -705,6 +723,8 @@ function animate() {
   if (predict.state || (pred_toggle.state && frame_count % 10 == 0)) {
     // Pause the simulation to allow orbit prediction
     // pause = true;
+
+    if (unsafe_toggle.state) pred_history.state = false;
 
     // Set the number of steps for orbit prediction based on the slider value
     predicted = predict_slide.state;
@@ -895,7 +915,7 @@ document.addEventListener("wheel", (e) => {
   // Adjust scale
   const newScale = Math.min(
     Math.max(
-      delta < 0 ? scale * zoomFactor : scale / zoomFactor, 0.00001), 1_000_000);
+      delta < 0 ? scale * zoomFactor : scale / zoomFactor, 0.00000001), 1_000_000);
 
   
 

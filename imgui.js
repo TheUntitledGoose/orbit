@@ -189,8 +189,8 @@ class ImGui {
 		return false;
 	}
 
-	checkbox(text = "Placeholder", toggle = false) {
-		var checkbox = new Checkbox(text, toggle);
+	checkbox(text = "Placeholder", toggle = false, color = "white") {
+		var checkbox = new Checkbox(text, toggle, color);
 		this.elements.push(checkbox);
 		return checkbox;
 	}
@@ -414,7 +414,7 @@ class Slider {
 		
 		const number = ( (number_percent) *(this.max-this.min)+this.min );
 		
-		const float_round = this.float == true ? 3 : 0;
+		const float_round = this.float == true ? 5 : 0;
 
 		// console.log(number,this.float, float_round,parseFloat(number).toFixed(float_round) )
 
@@ -553,11 +553,12 @@ class Button {
 }
 
 class Checkbox {
-	constructor(text, toggle) {
+	constructor(text, toggle, color = "white") {
 		this.x = 0;
 		this.y = 0;
 		this.text = text;
 		this.state = toggle;
+		this.color = color;
 	}
 
 	checkmark(x, y) {
@@ -590,7 +591,7 @@ class Checkbox {
 		
 		var newX = x + BUTTON_SIZE + GAP;
 		var newY = y + 5 + BUTTON_SIZE / 2;
-		ImGui.text(this.text, newX, newY)
+		ImGui.text(this.text, newX, newY, this.color)
 		
 		if (this.state) {
 			this.checkmark(x, y);
