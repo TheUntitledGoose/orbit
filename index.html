@@ -42,6 +42,7 @@ tutorial.staticText("Left Click to move around", undefined, true)
 tutorial.staticText("Right click on body to lock on.\nIf locked on, right click away to unlock.", undefined, true)
 tutorial.staticText("Scroll wheel to zoom in and out\n(This is a very large map, real-life scaled)", undefined, true)
 tutorial.staticText("Space to pause time.", undefined, true)
+tutorial.staticText("Keys 1-9 to switch between bodies", undefined, true)
 tutorial.staticText("-------GENERAL--------", "gold", true)
 tutorial.staticText("It's slightly broken right now\nSpawning doesn't work right now.", undefined, true)
 
@@ -62,6 +63,8 @@ let pred_history = imgui.checkbox("Show Predictions (Reduces Performance)", true
 let earth_v_checkbox = imgui.checkbox("Show Velocities", false);
 let earth_a_checkbox = imgui.checkbox("Show Labels", true);
 
+let relative_trajectories = imgui.checkbox("Draw Relative Trajectories", true);
+
 imgui.staticText("")
 imgui.staticText("Spawn (Lock onto body first)")
 let earth_spawn = imgui.button("Spawn Asteroid");
@@ -75,7 +78,7 @@ let pred_toggle = imgui.checkbox("Toggle Continuous Prediction (Reduces Performa
 let unsafe_toggle  = imgui.checkbox("Unsafe values count (WILL CRASH/FREEZE)", false, "red");
 let predict_slide = imgui.slider(0, 10_000, 250, 500, {text: "Steps"});
 let predicted = 0;
-let dt_slider = imgui.slider(0.0000001, 2, 300, 1, {text: "Speedup", float: true});
+let dt_slider = imgui.slider(0.0000001, 2, undefined, 1, {text: "Speedup", float: true});
 
 imgui.init();
 
@@ -351,7 +354,7 @@ class ball {
       if (this.history.length > 0) {
         ctx.beginPath();
         ctx.lineWidth = 2.5*1/scale;
-        if (isLocked == true && balls[lockedBallIndex].history.length > 0) {
+        if (isLocked == true && balls[lockedBallIndex].history.length > 0 && relative_trajectories.state) {
           ctx.moveTo(
             this.history[0][0] - balls[lockedBallIndex].history[0][0] + (balls[lockedBallIndex].pos[0]),
             this.history[0][1] - balls[lockedBallIndex].history[0][1] + (balls[lockedBallIndex].pos[1])
@@ -362,12 +365,12 @@ class ball {
 
         for (let i = 1; i < this.history.length; i++) {
           // if (this.check(this.history[i][0],this.history[i][1])) continue
-          if (isLocked == true && balls[lockedBallIndex].history.length > i) {
+          if (isLocked == true && balls[lockedBallIndex].history.length > i && relative_trajectories.state) {
             ctx.lineTo(
               this.history[i][0] - balls[lockedBallIndex].history[i][0] + (balls[lockedBallIndex].pos[0]),
               this.history[i][1] - balls[lockedBallIndex].history[i][1] + (balls[lockedBallIndex].pos[1])
             )
-          } else if (isLocked == false) {
+          } else {
             ctx.lineTo(
               this.history[i][0],
               this.history[i][1]

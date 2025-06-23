@@ -1,3 +1,9 @@
+/*
+NOW OBSOLETE
+THE UP TO DATE IMGUI IS ON THE GITHUB
+*/
+
+
 export { ImGui }
 
 // const c = document.getElementById("myCanvas");
