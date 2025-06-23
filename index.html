@@ -1,6 +1,7 @@
 <html>
   <head>
     <!-- <script defer src="https://analytics.theuntitledgoose.com/script.js" data-website-id="e6553917-d87e-428f-aa61-f09ff4315db7"></script> -->
+	<script type="module" src="https://cdn.jsdelivr.net/gh/TheUntitledGoose/imgui-js@main/imgui.js"></script>
   <style>
     html, body {
       touch-action: none; /* Disables touch gestures, including zooming */
@@ -19,15 +20,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 </head>
   <body><canvas id="myCanvas" width="1280" height="607"></canvas> 
-<script src="imgui.js"></script>
+<!-- <script src="imgui.js"></script> -->
 <script type="module">
 
-import { ImGui } from "./imgui.js"
+// import { ImGui } from "./imgui.js"
 
 const c = document.getElementById("myCanvas");
 const ctx = c.getContext("2d");
 
-let imgui = new ImGui(100, 50, 400, 100, c);
+let windowWidth = window.innerWidth;
+let windowHeight = window.innerHeight;
+
+// TUTORIAL //
+const tut_w = 275
+let tutorial = new ImGui(windowWidth/2-tut_w/2, 50, tut_w, 100, c);
+
+tutorial.title = "TUTORIAL";
+
+tutorial.staticText("-------CONTROLS-------", "gold", true)
+tutorial.staticText("Left Click to move around", undefined, true)
+tutorial.staticText("Right click on body to lock on.\nIf locked on, right click away to unlock.", undefined, true)
+tutorial.staticText("Scroll wheel to zoom in and out\n(This is a very large map, real-life scaled)", undefined, true)
+tutorial.staticText("Space to pause time.", undefined, true)
+tutorial.staticText("-------GENERAL--------", "gold", true)
+tutorial.staticText("It's slightly broken right now\nSpawning doesn't work right now.", undefined, true)
+
+
+tutorial.init();
+
+// /TUTORIAL //
+
+
+let imgui = new ImGui(100, 80, 400, 100, c);
 
 let fps = imgui.staticText("FPS: 0")
 
@@ -48,7 +72,7 @@ imgui.staticText("")
 imgui.staticText("N-Body Prediction")
 let predict = imgui.button("Predict Orbits");
 let pred_toggle = imgui.checkbox("Toggle Continuous Prediction (Reduces Performance)", false);
-let unsafe_toggle  = imgui.checkbox("Unsafe values count (Reduces Performance)", false, "red");
+let unsafe_toggle  = imgui.checkbox("Unsafe values count (WILL CRASH/FREEZE)", false, "red");
 let predict_slide = imgui.slider(0, 10_000, 250, 500, {text: "Steps"});
 let predicted = 0;
 let dt_slider = imgui.slider(0.0000001, 2, 300, 1, {text: "Speedup", float: true});
@@ -59,9 +83,6 @@ imgui.init();
 document.addEventListener("contextmenu", function (e) { 
   e.preventDefault(); 
 })
-
-let windowWidth = window.innerWidth;
-let windowHeight = window.innerHeight;
 
 let scale = 0.0005;
 let originX = windowWidth/2;
@@ -813,6 +834,8 @@ function animate() {
   }
 
   imgui.draw();
+
+  tutorial.draw();
   
   frame_count++
   if (frame_count >= 60) frame_count = 0
@@ -843,7 +866,8 @@ let isLocked = true;
 let lockedBallIndex = 0;
 
 c.addEventListener('mousedown', (e) => {
-  if (!imgui.checkBounding(e.x, e.y) && e.button == 0) {
+  if ((!imgui.checkBounding(e.x, e.y) && !tutorial.checkBounding(e.x, e.y)) && e.button == 0) {
+    console.log(tutorial.checkBounding(e.x, e.y))
     mouse = true;
     mx = e.x;
     my = e.y;

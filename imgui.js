@@ -73,6 +73,7 @@ class ImGui {
 		this.width = width;
 		this.init_height = height;
 		this.height = height;
+		this.title = "ImGui JS"
 
 		this.moving = false;
 		this.hidden = false;
@@ -201,8 +202,8 @@ class ImGui {
 		return button;
 	}
 
-	staticText(text = "Placeholder", color = "white") {
-		var staticText = new StaticText(text, color);
+	staticText(text = "Placeholder", color = "white", center = false) {
+		var staticText = new StaticText(text, color, center);
 		this.elements.push(staticText);
 		return staticText;
 	}
@@ -249,18 +250,20 @@ class ImGui {
 		}
 		const longest_text_width = ctx.measureText(longest_text).width
 		
-		console.log(farthest_text, longest_text_width)
+		// console.log(farthest_text, longest_text_width)
 
 		// console.log(longest_text, longest_text_width+farthest_text)
+		
+		// Disabled for now as it's hella broken
 		if (
 			(longest_text != "" 
 			&& (longest_text_width >= this.width 
-			|| longest_text_width+farthest_text >= longest_width))
+			|| longest_text_width+farthest_text >= this.width)) // longest_width => this.width
 		) {
-			this.width = longest_text_width + GAP*2 + farthest_text + longest_width;
+			// this.width = longest_text_width + GAP*2 + farthest_text + longest_width;
 		}
 		else if (longest_width > this.width){
-			this.width = longest_text_width + GAP*2
+			// this.width = longest_text_width + GAP*2
 		}
 	}
 
@@ -303,7 +306,7 @@ class ImGui {
 			
 
 			for (var i = 0; i < this.elements.length; i++) {
-				var x = this.x + 10;
+				var x = this.x + GAP;
 				// var y = this.y + TAB_HEIGHT + GAP + i * GAP * 3;
 				var y = this.y + TAB_HEIGHT + GAP;
 				// start of y with previous element
@@ -317,7 +320,7 @@ class ImGui {
 					y += 14 * (this.elements[i-1].text.split("\n").length - 1);
 				}
 
-				this.elements[i].draw(x, y);
+				this.elements[i].draw(x, y, this.width);
 			}
 			
 			ctx.restore();
@@ -328,7 +331,7 @@ class ImGui {
 			this.openTrig();
 		}
 		
-		ImGui.text("ImGui JS", this.x + TRIG_OFFSET * 5, this.y + TRIG_OFFSET * 3);
+		ImGui.text(this.title, this.x + TRIG_OFFSET * 5, this.y + TRIG_OFFSET * 3);
 
 		if ( this.checkHide(curX, curY) ) {
 			circ(this.x + TRIG_OFFSET * 2, this.y + 9, 8, `rgba(66, 149, 249, 0.5)`);
@@ -604,14 +607,15 @@ class Checkbox {
 }
 
 class StaticText {
-	constructor(text, color) {
+	constructor(text, color, center) {
 		this.x = 0;
 		this.y = 0;
 		this.text = text;
-		this.color = color
+		this.color = color;
+		this.center = center;
 	}
 
-	draw(x, y) {
+	draw(x, y, width) {
 		this.x = x;
 		this.y = y;
 
@@ -620,10 +624,14 @@ class StaticText {
 		for(let i=0; i<lines.length; i++) {
 			// 14px is the height of the font used in ImGui.text()
 			// will make fonts changable in the future
-			ImGui.text(lines[i], x, y + 14 * (i + 1), this.color);
-			// y += 14; // move to the next line
-		}	
-		// ImGui.text(this.text, x, y+14, this.color);
+			if (this.center) {
+				const textWidth = ctx.measureText(lines[i]).width;
+				this.x -= GAP + textWidth
+				this.x += (textWidth+width)/2
+			}
+			ImGui.text(lines[i], this.x, this.y + 14 * (i + 1), this.color);
+			this.x = x;
+		}
 	}
 
 	check(x, y, e) {
