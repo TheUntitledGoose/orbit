@@ -76,7 +76,7 @@ imgui.staticText("N-Body Prediction")
 let predict = imgui.button("Predict Orbits");
 let pred_toggle = imgui.checkbox("Toggle Continuous Prediction (Reduces Performance)", false);
 let unsafe_toggle  = imgui.checkbox("Unsafe values count (WILL CRASH/FREEZE)", false, "red");
-let predict_slide = imgui.slider(0, 10_000, 250, 500, {text: "Steps"});
+let predict_slide = imgui.slider(0, 10_000, undefined, 500, {text: "Steps"});
 let predicted = 0;
 let dt_slider = imgui.slider(0.0000001, 2, undefined, 1, {text: "Speedup", float: true});
 
@@ -463,13 +463,36 @@ class ball {
       ctx.beginPath();
       ctx.lineWidth = 2.5*1/scale;
       
-      ctx.moveTo(this.futureHist[0][0],this.futureHist[0][1])
+      if (isLocked == true && balls[lockedBallIndex].futureHist.length > 0 && relative_trajectories.state) {
+        ctx.moveTo(
+          this.futureHist[0][0] - balls[lockedBallIndex].futureHist[0][0] + (balls[lockedBallIndex].pos[0]),
+          this.futureHist[0][1] - balls[lockedBallIndex].futureHist[0][1] + (balls[lockedBallIndex].pos[1])
+        )
+      } else {
+        ctx.moveTo(this.futureHist[0][0],this.futureHist[0][1])
+      }
+
+      // ctx.moveTo(this.futureHist[0][0],this.futureHist[0][1])
 
       for (let i = 1; i < this.futureHist.length; i++) {
-        ctx.lineTo(
-          this.futureHist[i][0],
-          this.futureHist[i][1]
-        )
+
+        if (isLocked == true && balls[lockedBallIndex].futureHist.length > i && relative_trajectories.state) {
+          ctx.lineTo(
+            this.futureHist[i][0] - balls[lockedBallIndex].futureHist[i][0] + (balls[lockedBallIndex].pos[0]),
+            this.futureHist[i][1] - balls[lockedBallIndex].futureHist[i][1] + (balls[lockedBallIndex].pos[1])
+          )
+        } else {
+          ctx.lineTo(
+            this.futureHist[i][0],
+            this.futureHist[i][1]
+          )
+        }
+
+        // ctx.lineTo(
+        //   this.futureHist[i][0],
+        //   this.futureHist[i][1]
+        // )
+        
       }
       ctx.stroke()
     }
@@ -704,6 +727,39 @@ balls[spawn(2_871e6/scale_modifer, 25.559e3/scale_modifer, "cyan", balls[0], 8.6
 // Neptune
 balls[spawn(4_498e6/scale_modifer, 24.764e3/scale_modifer, "lightblue", balls[0], 1.02e26)-1].text = "Neptune";
 
+function predictFunc() {
+  // Pause the simulation to allow orbit prediction
+
+  if (unsafe_toggle.state) {
+    pause = true;
+    pred_history.state = false;
+  }
+
+  // Set the number of steps for orbit prediction based on the slider value
+  predicted = predict_slide.state;
+
+  for (var i = 0; i < balls.length; i++) {
+    const ball = balls[i];
+    // Reset the balls future params for orbital prediction
+    ball.futurePos = ball.pos;
+    ball.futureVel = ball.vel;
+    ball.futureAcc = ball.acc;
+
+    ball.futureHist = [];
+  }
+
+  // Initiate the loop for orbit prediction using the steps in slider
+  let frame = 0
+  for (var s = 0; s < predict_slide.state; s++) {
+    for (var i = 0; i < balls.length; i++) {
+      const ball = balls[i];
+      ball.update(i, false, frame);
+    }
+    frame++;
+  }
+}
+
+predict.onClick(predictFunc)
 
 // imgui.width = 350;
 function animate() {
@@ -744,35 +800,7 @@ function animate() {
   // console.log(earth_v_checkbox.state)
   // console.log(earth_a_checkbox.state)
 
-  if (predict.state || (pred_toggle.state && frame_count % 10 == 0)) {
-    // Pause the simulation to allow orbit prediction
-    // pause = true;
-
-    if (unsafe_toggle.state) pred_history.state = false;
-
-    // Set the number of steps for orbit prediction based on the slider value
-    predicted = predict_slide.state;
-
-    for (var i = 0; i < balls.length; i++) {
-      const ball = balls[i];
-      // Reset the balls future params for orbital prediction
-      ball.futurePos = ball.pos;
-      ball.futureVel = ball.vel;
-      ball.futureAcc = ball.acc;
-
-      ball.futureHist = [];
-    }
-
-    // Initiate the loop for orbit prediction using the steps in slider
-    let frame = 0
-    for (var s = 0; s < predict_slide.state; s++) {
-      for (var i = 0; i < balls.length; i++) {
-        const ball = balls[i];
-        ball.update(i, false, frame);
-      }
-      frame++;
-    }
-  }
+  if ((pred_toggle.state && frame_count % 10 == 0)) predictFunc()
 
   if (earth_spawn.state) {
 
@@ -815,7 +843,7 @@ function animate() {
     ball.velocity_v = earth_v_checkbox.state
     // ball.acc_v = earth_a_checkbox.state
   }
-  
+
   ctx.restore();
   
   if (earth_a_checkbox.state) {
@@ -870,7 +898,7 @@ let lockedBallIndex = 0;
 
 c.addEventListener('mousedown', (e) => {
   if ((!imgui.checkBounding(e.x, e.y) && !tutorial.checkBounding(e.x, e.y)) && e.button == 0) {
-    console.log(tutorial.checkBounding(e.x, e.y))
+    // console.log(tutorial.checkBounding(e.x, e.y))
     mouse = true;
     mx = e.x;
     my = e.y;
