@@ -338,9 +338,9 @@ class ball {
     // this.pos[0] = parseFloat(this.pos[0].toPrecision(15))
     // this.pos[1] = parseFloat(this.pos[1].toPrecision(15))
     
-    if (frame_count % 10 == 0) {
+    // if (frame_count % 10 == 0) {
       this.history.push(this.pos);
-    }
+    // }
 
     if (this.history.length > this.history_length) {
       this.history.shift();
@@ -363,7 +363,7 @@ class ball {
           ctx.moveTo(this.history[0][0],this.history[0][1])
         }
 
-        for (let i = 1; i < this.history.length; i++) {
+        for (let i = 1; i < this.history.length; i+=Math.max(1,parseInt(.0001/scale))) {
           // if (this.check(this.history[i][0],this.history[i][1])) continue
           if (isLocked == true && balls[lockedBallIndex].history.length > i && relative_trajectories.state) {
             ctx.lineTo(
@@ -787,8 +787,8 @@ function animate() {
     const centerY = c.height / 2;
 
     // Adjust origin to keep the ball centered
-    originX = parseInt(centerX - (ball.pos[0] * scale));
-    originY = parseInt(centerY - (ball.pos[1] * scale));
+    originX = parseInt(centerX - (ball.pos[0] * scale) - (ball.vel[0] * dt * scale) );
+    originY = parseInt(centerY - (ball.pos[1] * scale) - (ball.vel[1] * dt * scale) );
   } else if (!balls[lockedBallIndex]) {
     isLocked = false;
     lockedBallIndex = -1;
@@ -985,7 +985,6 @@ document.addEventListener("keydown", (e) => {
   // 32 == SPACE
   if (e.keyCode == 32 && !pause) {
     pause = true;
-    console.log(balls)
   } else if (e.keyCode == 32 && pause) {
     pause = false;
   }
