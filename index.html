@@ -2,6 +2,7 @@
   <head>
     <!-- <script defer src="https://analytics.theuntitledgoose.com/script.js" data-website-id="e6553917-d87e-428f-aa61-f09ff4315db7"></script> -->
 	<script type="module" src="https://cdn.jsdelivr.net/gh/TheUntitledGoose/imgui-js@main/imgui.js"></script>
+  <script src="graphics.js"></script>
   <style>
     html, body {
       touch-action: none; /* Disables touch gestures, including zooming */
@@ -37,6 +38,7 @@ let tutorial = new ImGui(windowWidth/2-tut_w/2, 50, tut_w, 100, c);
 
 tutorial.title = "TUTORIAL";
 
+tutorial.staticText("PC Only! Mobile is hard", undefined, true)
 tutorial.staticText("-------CONTROLS-------", "gold", true)
 tutorial.staticText("Left Click to move around", undefined, true)
 tutorial.staticText("Right click on body to lock on.\nIf locked on, right click away to unlock.", undefined, true)
@@ -45,6 +47,10 @@ tutorial.staticText("Space to pause time.", undefined, true)
 tutorial.staticText("Keys 1-9 to switch between bodies", undefined, true)
 tutorial.staticText("-------GENERAL--------", "gold", true)
 tutorial.staticText("It's slightly broken right now\nSpawning doesn't work right now.", undefined, true)
+tutorial.staticText("For real-life time scaling,\nuse this speedup time:\n0.000023148", undefined, true)
+tutorial.button("Real-life time scaling", true).onClick(() => {
+  dt = 0.000023148
+})
 
 
 tutorial.init();
@@ -80,14 +86,21 @@ let predict_slide = imgui.slider(0, 10_000, undefined, 500, {text: "Steps"});
 let predicted = 0;
 let dt_slider = imgui.slider(0.0000001, 2, undefined, 1, {text: "Speedup", float: true});
 
+let history_length = 5000;
+let history_slider = imgui.slider(0, history_length, undefined, history_length, {text: "History Selector"});
+
 imgui.init();
+
+imgui.selected = false;
 
 
 document.addEventListener("contextmenu", function (e) { 
   e.preventDefault(); 
 })
 
-let scale = 0.0005;
+// let scale = 0.0005;
+let scale = 0.02;
+// let scale = 0.0000002;
 let originX = windowWidth/2;
 let originY = windowHeight/2;
 
@@ -97,6 +110,50 @@ let lastTick = Date.now();
 
 c.height = windowHeight;
 c.width = windowWidth;
+
+// -----------------------------
+// Shared resources for all ball instances
+// -----------------------------
+const BallShared = {
+  starCanvas: null,
+  starCanvasSize: 1024,
+  makeStarfield(size = 1024, count = 1000) {
+    if (this.starCanvas && this.starCanvas.width === windowWidth) return this.starCanvas;
+    const c = document.createElement('canvas');
+    c.width = windowWidth;
+    c.height = windowHeight;
+    const cx = c.getContext('2d');
+    cx.fillStyle = 'black';
+    cx.fillRect(0, 0, windowWidth, windowHeight);
+
+    // random small stars: vary brightness and size
+    for (let i = 0; i < count; i++) {
+      const x = Math.random() * windowWidth;
+      const y = Math.random() * windowHeight;
+      const s = Math.pow(Math.random(), 2.2) * 2.2; // bias small
+      const alpha = 0.2 + Math.random() * 0.9;
+      cx.fillStyle = `rgba(255,255,255,${alpha})`;
+      cx.beginPath();
+      cx.arc(x, y, s, 0, Math.PI * 2);
+      cx.fill();
+    }
+    // subtle smeared layer for faint nebula/dust
+    cx.globalCompositeOperation = 'lighter';
+    cx.fillStyle = 'rgba(40,50,100,0.02)';
+    for (let i = 0; i < 60; i++) {
+      const x = Math.random() * windowWidth;
+      const y = Math.random() * windowHeight;
+      const r = 20 + Math.random() * 200;
+      cx.beginPath();
+      cx.ellipse(x, y, r, r * (0.2 + Math.random() * 1.2), Math.random() * Math.PI, 0, Math.PI * 2);
+      cx.fill();
+    }
+    cx.globalCompositeOperation = 'source-over';
+    this.starCanvas = c;
+    return c;
+  }
+};
+
 
 function addVec(vec1, vec2) {
   	var retVec = [];
@@ -115,6 +172,158 @@ function subVec(vec1, vec2) {
 function mulVector(vec1, vec2) {
   return [vec1[0] * vec2[0], vec1[1] * vec2[1]]
 }
+
+function rect(startx, starty, endx, endy) {
+  const of = ctx.fillStyle;
+  ctx.fillStyle = 'white'
+  ctx.beginPath();
+  ctx.rect(startx, starty, endx, endy);
+  ctx.stroke();
+  ctx.fillStyle = of;
+}
+
+class Point {
+  constructor(x, y) {this.x = x;this.y = y;}
+}
+
+class Quadtree {
+  constructor(topLeft, bottomRight) {
+    //   { x, y }
+    this.topLeft = topLeft;
+    //   { x, y }
+    this.botRight = bottomRight;
+
+    this.n = null;
+
+    // Another Quadtree (recursive)
+    this.topLeftTree = null;
+    this.topRightTree = null;
+    this.botLeftTree = null;
+    this.botRightTree = null;
+  }
+
+  insert(ball) {
+    // if no point
+    if (ball === null) {
+      return;
+    }
+
+    // If point not in boundary of quad
+    if (!this.inBoundary(ball.pos)) {
+      return;
+    }
+
+    // We are at a quad of unit area
+    // We cannot subdivide this quad further
+    if (Math.abs(this.topLeft.x - this.botRight.x) <= 1 || Math.abs(this.topLeft.y - this.botRight.y) <= 1) {
+      if (this.n === null) {
+        this.n = node;
+      }
+      return;
+    }
+
+    // decide where the point belongs in the 4 new quad trees
+    if ((this.topLeft.x + this.botRight.x) / 2 >= node.pos.x) {
+      // Indicates topLeftTree
+      if ((this.topLeft.y + this.botRight.y) / 2 >= node.pos.y) {
+        if (this.topLeftTree === null) {
+          this.topLeftTree = new Quadtree(
+            this.topLeft, 
+            new Point((this.topLeft.x + this.botRight.x) / 2, (this.topLeft.y + this.botRight.y) / 2)
+          );
+        }
+        this.topLeftTree.insert(node);
+      }
+      // Indicates botLeftTree
+      else {
+        if (this.botLeftTree === null) {
+          this.botLeftTree = new Quadtree(
+            new Point(this.topLeft.x, (this.topLeft.y + this.botRight.y) / 2), 
+            new Point((this.topLeft.x + this.botRight.x) / 2, this.botRight.y)
+          );
+        }
+        this.botLeftTree.insert(node);
+      }
+    } else {
+      // Indicates topRightTree
+      if ((this.topLeft.y + this.botRight.y) / 2 >= node.pos.y) {
+        if (this.topRightTree === null) {
+          this.topRightTree = new Quadtree(
+            new Point((this.topLeft.x + this.botRight.x) / 2, this.topLeft.y), 
+            new Point(this.botRight.x, (this.topLeft.y + this.botRight.y) / 2)
+          );
+        }
+        this.topRightTree.insert(node);
+      }
+      // Indicates botRightTree
+      else {
+        if (this.botRightTree === null) {
+          this.botRightTree = new Quadtree(
+            new Point((this.topLeft.x + this.botRight.x) / 2, (this.topLeft.y + this.botRight.y) / 2), 
+            this.botRight
+          );
+        }
+        this.botRightTree.insert(node);
+      }
+    }
+
+  }
+
+  // Find a node in a quadtree
+  search(p) {
+    // Current quad cannot contain it
+    if (!this.inBoundary(p)) {
+      return 0;  // Return 0 if point is not found
+    }
+
+    // We are at a quad of unit length
+    // We cannot subdivide this quad further
+    if (this.n !== null) {
+      return this.n;
+    }
+
+    if ((this.topLeft.x + this.botRight.x) / 2 >= p.x) {
+      // Indicates topLeftTree
+      if ((this.topLeft.y + this.botRight.y) / 2 >= p.y) {
+        if (this.topLeftTree === null) {
+          return 0;
+        }
+        return this.topLeftTree.search(p);
+      }
+      // Indicates botLeftTree
+      else {
+        if (this.botLeftTree === null) {
+          return 0;
+        }
+        return this.botLeftTree.search(p);
+      }
+    } else {
+      // Indicates topRightTree
+      if ((this.topLeft.y + this.botRight.y) / 2 >= p.y) {
+        if (this.topRightTree === null) {
+          return 0;
+        }
+        return this.topRightTree.search(p);
+      }
+      // Indicates botRightTree
+      else {
+        if (this.botRightTree === null) {
+          return 0;
+        }
+        return this.botRightTree.search(p);
+      }
+    }
+  }
+
+  // Check if current quadtree contains the point
+  inBoundary(p) {
+    return p.x >= this.topLeft.x && p.x <= this.botRight.x && p.y >= this.topLeft.y && p.y <= this.botRight.y;
+  }
+
+  
+
+}
+
 
 const distance_factor = 1;
 const g = (6.637*(10**-15)); // 6.637 * 10**-11 ; -23/-21 when changed by 10^6  (10^6)^2  like the r^2
@@ -242,7 +451,7 @@ function calcAcc(ball_, int, apply = true) {
 }
 
 class ball {
-	constructor(x=0,y=0,stat=false,mass=1,vel=[0,0],rad=1,clr="white",grav_=0) {
+	constructor(x=0, y=0, static_=false, mass=1, vel=[0,0], rad=1, clr="white", grav_=0, options = {}) {
     this.history = [];
     this.futureHist = [];
     
@@ -255,7 +464,7 @@ class ball {
     this.grav = grav_;
     
     this.mass = mass;
-    this.static = stat;
+    this.static = static_;
 
     this.pos = [x, y];
     this.vel = vel;
@@ -266,7 +475,40 @@ class ball {
     this.futureAcc = [0, 0];
 
     this.history_toggle = true;
-    this.history_length = 5000
+    // this.history_length = 5000
+
+    // visual options
+    this.quality = options.quality || 1.0; // 0.5 to 1.5
+    this.seed = options.seed || Math.floor(Math.random() * 100000);
+    this.ring = { 
+      enabled: !!options.rings || false, 
+      inner: 1.5, outer: 2.3, 
+      tilt: (options.ringTilt ?? 0.4), 
+      color: options.ringColor || 'rgba(200,180,140,0.6)', 
+      speed: options.ringSpeed || 0.02 
+    };
+    this.atmosphere = { 
+      color: options.atmosColor || 'rgba(70,150,255,0.15)', 
+      width: options.atmosWidth || 0.12 
+    };
+    this.clouds = { 
+      enabled: (options.clouds ?? true), 
+      speed: options.cloudSpeed || 0.02, 
+      opacity: (options.cloudOpacity ?? 0.45) 
+    };
+
+    // offscreen canvases for layers
+    this.texCanvas = null;      // base terrain + night lights + baked lighting (static)
+    this.cloudCanvas = null;    // cloud texture (reused and offset per-frame)
+    this.ringCanvas = null;     // ring pre-rendered
+    this._dirtyTexture = true;  // regenerate when radius/seed change
+    this._dirtyRings = true;
+
+    // store timestamp for animations
+    this._time = 0;
+
+    // starfield shared
+    BallShared.makeStarfield(1024, 1500);
   }
   
   check(x,y) {
@@ -326,7 +568,7 @@ class ball {
 
     if (!apply) {
       // If not apply, then predict
-      this.futurePos = addVec(this.futureVel, this.futurePos)
+      this.futurePos = addVec(mulVector(this.futureVel, [dt, dt]), this.futurePos)
       if (frame % Math.floor(Math.max(predict_slide.state/100_000, 10)) == 0) this.futureHist.push(this.futurePos);
       return
     } else {
@@ -342,12 +584,414 @@ class ball {
       this.history.push(this.pos);
     // }
 
-    if (this.history.length > this.history_length) {
+    if (this.history.length > history_length) {
       this.history.shift();
     }
   }
-  	
-  draw() {
+
+  // -----------------------
+  // hover detection & HUD
+  // -----------------------
+  isHovered(mouseX, mouseY) {
+    const dx = mouseX - this.pos[0];
+    const dy = mouseY - this.pos[1];
+    return dx * dx + dy * dy <= this.rad * this.rad;
+  }
+
+  // called when geometry/scale changes
+  markDirty() {
+    this._dirtyTexture = true;
+    this._dirtyRings = true;
+  }
+  
+  // ---------- helpers ----------
+  _ensureTexCanvases() {
+    const size = 1024;
+    if (!this.texCanvas || this.texCanvas.width !== size) {
+      this.texCanvas = document.createElement('canvas');
+      this.texCanvas.width = size;
+      this.texCanvas.height = size;
+      this._dirtyTexture = true;
+    }
+    if (!this.cloudCanvas || this.cloudCanvas.width !== size) {
+      this.cloudCanvas = document.createElement('canvas');
+      this.cloudCanvas.width = size;
+      this.cloudCanvas.height = size;
+      this.cloudCanvasCtx = this.cloudCanvas.getContext('2d');
+      this._dirtyCloudPattern = true;
+    }
+    if (!this.ringCanvas) {
+      this.ringCanvas = document.createElement('canvas');
+      this.ringCanvas.width = this.ringCanvas.height = size;
+      this.ringCanvasCtx = this.ringCanvas.getContext('2d');
+      this._dirtyRings = true;
+    }
+  }
+
+  // Example "sunDir" normalization & lifting: accept either {dir:[x,y,z]} or {dir2:[x,y]} or {pos:[x,y,z]} relative to planet.
+  _computeSunDir(sun) {
+    let sx = 1, sy = 0, sz = -0.4;
+    if (!sun) return [sx, sy, sz];
+    if (sun.dir && sun.dir.length === 3) { sx = sun.dir[0]; sy = sun.dir[1]; sz = sun.dir[2]; }
+    else if (sun.dir2 && sun.dir2.length === 2) { sx = sun.dir2[0]; sy = sun.dir2[1]; sz = -0.4; }
+    else if (sun.pos && sun.pos.length === 3) {
+      // direction from surface to sun (world coords)
+      sx = sun.pos[0] - this.pos[0];
+      sy = sun.pos[1] - this.pos[1];
+      sz = sun.pos[2] ?? -200; // if no Z given, assume far in front/back
+    } else if (sun.pos && sun.pos.length === 2) {
+      sx = sun.pos[0] - this.pos[0];
+      sy = sun.pos[1] - this.pos[1];
+      sz = -200;
+    }
+    const len = Math.hypot(sx, sy, sz) || 1;
+    return [sx / len, sy / len, sz / len];
+  }
+  
+  // -----------------------
+  // Generate base planet texture (baked terrain + lighting + nightlights)
+  // This is the most expensive step; done only on dirty or size/seed change.
+  // -----------------------
+  _generateBaseTexture(sunDir3 = [1, 0, -0.4]) {
+    this._ensureTexCanvases();
+    const canvas = this.texCanvas;
+    const ctx = canvas.getContext('2d');
+    const size = canvas.width;
+    ctx.clearRect(0, 0, size, size);
+
+    // create ImageData and fill per-pixel only inside circle
+    const im = ctx.createImageData(size, size);
+    const data = im.data;
+    const cx = size / 2, cy = size / 2;
+    const r = size / 2;
+
+    // small deterministic offset for seed influence
+    const seedOffset = (this.seed % 1000) * 0.001;
+
+    for (let py = 0; py < size; py++) {
+      for (let px = 0; px < size; px++) {
+        const dx = (px + 0.5 - cx) / r; // -1..1
+        const dy = (py + 0.5 - cy) / r;
+        const dist2 = dx * dx + dy * dy;
+        const idx = (py * size + px) * 4;
+
+        if (dist2 > 1.0) {
+          // transparent outside sphere
+          data[idx + 0] = 0;
+          data[idx + 1] = 0;
+          data[idx + 2] = 0;
+          data[idx + 3] = 0;
+          continue;
+        }
+
+        // compute 3D normal on sphere surface
+        const nx = dx;
+        const ny = dy;
+        const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny)); // positive z pointing "out of screen"
+
+        // spherical param coords for noise mapping
+        const u = 0.5 + Math.atan2(nz, nx) / (2 * Math.PI); // approx longitude
+        const v = 0.5 - Math.asin(ny) / Math.PI;            // approx latitude
+
+        // fbm base
+        const freq = 6.0;
+        const nval = fbm2((u + seedOffset) * freq * 1.0, (v + seedOffset) * freq * 1.0, 5);
+
+        // make bands (useful for gas giants) and tiny details
+        const bandNoise = Math.sin((v + fbm2(u * 20.0, v * 20.0) * 0.03) * 60.0) * 0.5 + 0.5;
+        const baseR = lerp(34 / 255, 220 / 255, Math.min(1, Math.pow(nval, 1.1)));
+        const baseG = lerp(60 / 255, 150 / 255, nval * 0.9);
+        const baseB = lerp(60 / 255, 80 / 255, 1 - nval * 0.7);
+
+        // blend in bands slightly
+        const baseColor = [
+          lerp(baseR, 240 / 255, bandNoise * 0.08),
+          lerp(baseG, 200 / 255, bandNoise * 0.06),
+          lerp(baseB, 160 / 255, bandNoise * 0.04),
+        ];
+
+        // lighting: Lambert + small Blinn spec
+        const LdotN = Math.max(0, nx * sunDir3[0] + ny * sunDir3[1] + nz * sunDir3[2]);
+        const ambient = 0.18;
+        const diff = ambient + LdotN * 0.82;
+        // specular estimate
+        const view = [0, 0, 1];
+        const hx = (sunDir3[0] + view[0]) * 0.5;
+        const hy = (sunDir3[1] + view[1]) * 0.5;
+        const hz = (sunDir3[2] + view[2]) * 0.5;
+        const hlen = Math.hypot(hx, hy, hz) || 1;
+        const hxN = hx / hlen, hyN = hy / hlen, hzN = hz / hlen;
+        const spec = Math.pow(Math.max(0, nx * hxN + ny * hyN + nz * hzN), 36) * 0.6;
+
+        // night lights: where LdotN is small show emissive spots using higher-frequency fbm
+        const nightMask = smoothstep(0.0, 0.15, 1.0 - LdotN);
+        const nightNoise = fbm2((u + seedOffset) * 80.0, (v + seedOffset) * 80.0, 4);
+        const night = nightMask * Math.max(0, nightNoise - 0.6) * 3.0;
+
+        const rcol = clamp01((baseColor[0] * diff + spec) + night * 1.2);
+        const gcol = clamp01((baseColor[1] * diff + spec) + night * 0.6);
+        const bcol = clamp01((baseColor[2] * diff + spec) + night * 0.2);
+
+        data[idx + 0] = Math.round(rcol * 255);
+        data[idx + 1] = Math.round(gcol * 255);
+        data[idx + 2] = Math.round(bcol * 255);
+        data[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(im, 0, 0);
+    this._dirtyTexture = false;
+  }
+
+  // -----------------------
+  // Cloud layer generation (fast) - we keep a pattern canvas and shift it each frame
+  // -----------------------
+  _generateCloudPattern() {
+    this._ensureTexCanvases();
+    const c = this.cloudCanvas;
+    const ctx = c.getContext('2d');
+    const size = c.width;
+    ctx.clearRect(0, 0, size, size);
+
+    // draw fbm to cloud canvas - thresholded for puffy clouds
+    const im = ctx.createImageData(size, size);
+    const data = im.data;
+    const seedOffset = (this.seed % 1000) * 0.001 + 77.7;
+
+    for (let py = 0; py < size; py++) {
+      for (let px = 0; px < size; px++) {
+        const u = px / size, v = py / size;
+        // higher frequency
+        let n = fbm2((u + seedOffset) * 8.0, (v + seedOffset) * 8.0, 5) * 1.1;
+        // enhance contrast for cloud shapes
+        n = Math.pow(n, 1.6);
+        const idx = (py * size + px) * 4;
+        const alpha = Math.max(0, Math.min(1, (n - 0.45) * 2.2));
+        // white cloud color
+        data[idx + 0] = 255;
+        data[idx + 1] = 255;
+        data[idx + 2] = 255;
+        data[idx + 3] = Math.round(alpha * 255);
+      }
+    }
+    ctx.putImageData(im, 0, 0);
+
+    // blur to make clouds soft
+    // ctx.globalCompositeOperation = 'source-atop';
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.filter = 'blur(6px)';
+    const temp = document.createElement('canvas');
+    temp.width = temp.height = size;
+    temp.getContext('2d').drawImage(c, 0, 0);
+    ctx.clearRect(0, 0, size, size);
+    ctx.filter = 'none';
+    ctx.drawImage(temp, 0, 0);
+    this._dirtyCloudPattern = false;
+  }
+
+  // -----------------------
+  // Rings pre-render
+  // -----------------------
+  // Replace your old _generateRings with this improved version
+  // Replace your old _generateRings with this improved version
+  _generateRings() {
+    if (!this.ring.enabled) return;
+    this._ensureTexCanvases();
+    const c = this.ringCanvas;
+    const ctx = c.getContext('2d');
+    const w = c.width = 1024; // ensure big enough
+    const h = c.height = w;
+    ctx.clearRect(0, 0, w, h);
+
+    const cx = w / 2;
+    const cy = h / 2;
+
+    // pixel inner/outer radii (based on planet radius)
+    const inner = Math.max(1, Math.round(200 * this.ring.inner));
+    const outer = Math.max(inner + 2, Math.round(200 * this.ring.outer));
+    const ringWidth = outer - inner;
+
+    // density: how many particles (tune for performance)
+    // fewer particles for thin/far rings, more for large close rings
+    const baseDensity = 0.2; // tweak 0.2..2.0
+    const particleCount = Math.max(300, Math.round(ringWidth * ringWidth * baseDensity));
+
+    // pre-parse color, fallback if not provided (we'll use ctx.fillStyle directly)
+    ctx.fillStyle = this.ring.color || 'rgba(220,200,160,0.6)';
+
+    // draw many tiny particles distributed across angle & radius
+    for (let i = 0; i < particleCount; i++) {
+      const ang = Math.random() * Math.PI * 2;           // uniform angle
+      // radius distribution biased slightly toward center of band for density variety
+      const r = inner + Math.pow(Math.random(), 0.9) * ringWidth;
+
+      // elliptical flattening to create tilt illusion (same flatten used in draw())
+      const flatten = 1 - (this.ring.tilt || 0.35); // 0 = fully flat, 1 = no flatten
+      const px = Math.cos(ang) * r;
+      const py = Math.sin(ang) * r * flatten;
+
+      // small tangential particle size (longer along tangent -> continuous arcs)
+      const sizeLong = (1.0 + Math.random() * 3.0) * (1.0 + ringWidth / 40); // length along tangent
+      const sizeShort = Math.max(1, (0.4 + Math.random() * 1.2));            // thickness across ring
+
+      const drawX = cx + px;
+      const drawY = cy + py;
+
+      ctx.save();
+      ctx.translate(drawX, drawY);
+      ctx.rotate(ang + Math.PI / 2); // make particle align tangentially
+      ctx.globalAlpha = (0.35 + Math.random() * 0.6) * 0.9; // randomize alpha
+      // draw a small rounded rectangle / ellipse to represent ring dust
+      ctx.beginPath();
+      ctx.ellipse(0, 0, sizeLong * 0.5, sizeShort * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // apply a smooth radial alpha mask (fade edges)
+    // create mask canvas:
+    const mask = document.createElement('canvas');
+    mask.width = w; mask.height = h;
+    const mx = mask.getContext('2d');
+
+    // radial gradient from center: 0 = transparent inside hole, 1 = opaque in middle, 0 = transparent outside
+    const grad = mx.createRadialGradient(cx, cy, Math.max(0, inner * 0.85), cx, cy, outer * 1.05);
+    // numbers chosen to give soft inner/outer falloff
+    grad.addColorStop(0.0, 'rgba(0,0,0,0)');       // inside hole = transparent
+    grad.addColorStop( (inner / outer) * 0.92, 'rgba(0,0,0,0.0)'); // still transparent near inner edge
+    grad.addColorStop( (inner / outer) * 1.02, 'rgba(0,0,0,1.0)'); // main band area opaque
+    grad.addColorStop(1.0, 'rgba(0,0,0,0.0)');     // outer falloff to transparent
+    mx.fillStyle = grad;
+    mx.fillRect(0, 0, w, h);
+
+    // use mask to punch out / fade the ring: destination-in keeps only where mask has alpha
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.drawImage(mask, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+
+    // optionally add a soft blur (light box blur) to remove harsh pixels — enable if needed
+    // ctx.filter = 'blur(0.8px)';
+    // const tmp = document.createElement('canvas');
+    // tmp.width = tmp.height = w;
+    // tmp.getContext('2d').drawImage(c, 0, 0);
+    // ctx.clearRect(0,0,w,h);
+    // ctx.filter = 'none';
+    // ctx.drawImage(tmp, 0, 0);
+
+    this._dirtyRings = false;
+  }
+
+  
+  // -----------------------
+  // main draw function
+  // options: { ctx, time, sun:{...}, mouse:[x,y], scale, origin }
+  // -----------------------
+  draw(options = {}) {
+
+    const ctx = options.ctx || (typeof window !== 'undefined' ? (window.ctx || null) : null);
+    if (!ctx) throw new Error("canvas context required: pass {ctx} to draw()");
+    const t = options.time || (performance ? performance.now() * 0.1 : 0);
+    this._time = t;
+    const sun = options.sun || { dir: [1, 0, -0.4] };
+    const sunDir3 = this._computeSunDir(sun);
+
+    // ensure canvases
+    this._ensureTexCanvases();
+
+    // regenerate textures if needed
+    if (this._dirtyTexture) this._generateBaseTexture(sunDir3);
+    if (this._dirtyCloudPattern) this._generateCloudPattern();
+    if (this._dirtyRings) this._generateRings();
+
+    // draw the planet: base texture
+    ctx.save();
+    ctx.translate(this.pos[0], this.pos[1]);
+
+    // screen scale allowance
+    const drawR = this.rad;
+    const size = this.texCanvas.width;
+
+    // base terrain (baked)
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(0, 0, drawR, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(this.texCanvas, -drawR, -drawR, drawR * 2, drawR * 2);
+    ctx.restore();
+
+    // clouds: animated by shifting source draw coordinates
+    if (this.clouds.enabled) {
+      const cloudOffset = (t * this.clouds.speed * 30) % this.cloudCanvas.width;
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = this.clouds.opacity;
+      // draw the cloud canvas shifted (wrap)
+      const s = this.cloudCanvas;
+      // clip to circle
+      ctx.beginPath();
+      ctx.arc(0, 0, drawR * 1.01, 0, Math.PI * 2);
+      ctx.clip();
+      // draw two copies to wrap
+      ctx.drawImage(s, -drawR - cloudOffset / (s.width / (drawR * 2)), -drawR, drawR * 2, drawR * 2);
+      ctx.drawImage(s, -drawR - cloudOffset / (s.width / (drawR * 2)) + drawR * 2, -drawR, drawR * 2, drawR * 2);
+      ctx.restore();
+    }
+
+    // atmosphere rim: nice soft glow using radial gradient
+    ctx.save();
+    const rimRad = drawR * (1 + this.atmosphere.width);
+    const g = ctx.createRadialGradient(0, 0, drawR * 0.95, 0, 0, rimRad);
+    // choose a subtle color
+    const atmColor = this.atmosphere.color || 'rgba(70,150,255,0.12)';
+    g.addColorStop(0.0, 'rgba(0,0,0,0)');
+    g.addColorStop(0.8, atmColor);
+    g.addColorStop(1.0, 'rgba(0,0,0,0)');
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, rimRad, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // rings — drawn around planet, rotated over time and tilted
+    if (this.ring.enabled) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      // tilt and rotate: first tilt by scaling Y
+      const tilt = this.ring.tilt;
+      // rotate by time * speed
+      const angle = t * this.ring.speed;
+      ctx.rotate(angle);
+      ctx.scale(1, 1 - tilt); // flatten Y to tilt
+      // draw ring centered (ringCanvas sized for this.rad*6)
+      const rc = this.ringCanvas;
+      ctx.drawImage(rc, -rc.width / 2, -rc.height / 2, rc.width, rc.height);
+      ctx.restore();
+    }
+
+    // specular glint (small bright ellipse near sun direction)
+    // ctx.save();
+    // const sdir = sunDir3;
+    // // map sunDir3 to 2D offset on screen: use x,y components and scale by radius
+    // const glintX = sdir[0] * drawR * 0.66;
+    // const glintY = sdir[1] * drawR * 0.66;
+    // ctx.globalCompositeOperation = 'lighter';
+    // ctx.beginPath();
+    // const gx = drawR * 0.18, gy = drawR * 0.08;
+    // ctx.ellipse(glintX, glintY, gx, gy, 0, 0, Math.PI * 2);
+    // ctx.fillStyle = 'rgba(255,250,220,0.55)';
+    // ctx.fill();
+    // ctx.restore();
+
+    // outline to sell roundness (thin)
+    ctx.beginPath();
+    ctx.lineWidth = Math.max(1, 2 / (options.scale || 1));
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.arc(0, 0, drawR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore(); // restore to world transform
+
+
 
     if (this.history_toggle) {
       ctx.strokeStyle = "rgba(255,255,255,0.25)"
@@ -383,50 +1027,10 @@ class ball {
 
     // original
     // if (this.check(this.pos[0],this.pos[1])) return
-    ctx.beginPath();
-    ctx.arc(this.pos[0], this.pos[1], this.rad, 0, 2 * Math.PI);
-    ctx.fillStyle = this.clr;
-    ctx.fill();
-
-    // color by speed
-    // 240 (low) -> 0 (high)
-    // if (this.check()) return
     // ctx.beginPath();
-    // const speed = Math.abs(this.vel[0]**2 + this.vel[1]**2);
-    // ctx.fillStyle = `hsl(${Math.max(240-speed*150,0)},100%,50%)`;
     // ctx.arc(this.pos[0], this.pos[1], this.rad, 0, 2 * Math.PI);
+    // ctx.fillStyle = this.clr;
     // ctx.fill();
-
-    // I wonder what effect i could get if i color 10-50 random points AROUND the point but not the point
-    // Like noise
-    // const o = 30
-    // const noise_count = 10
-    // for (let i = 0; i < noise_count; i++) {
-    //   ctx.beginPath();
-    //   const radian_angle = Math.random()*TWO_PI;
-    //   const angle = [
-    //     Math.cos(radian_angle),
-    //     Math.sin(radian_angle)
-    //   ]
-    //   const circle_distance = (Math.random()**1)*o
-    //   const offset = [
-    //     angle[0]*(circle_distance),
-    //     angle[1]*(circle_distance),
-    //   ]
-
-    //   // 280 -> 360+30=390
-    //   ctx.fillStyle = `hsl(${ Math.min(390,260+this.clr_hsl) },100%,50%)`;
-    //   // ctx.fillStyle = `hsl(260,100%,50%)`;
-    //   ctx.arc(this.pos[0]+offset[0], this.pos[1]+offset[1], 0.475, 0, 2 * Math.PI);
-    //   ctx.fill();
-    // }
-
-    // if (this.text != "") {
-    //   ImGui.text(
-    //     this.text,
-    //     this.pos[0] + 10, this.pos[1]+this.rad
-    //   )
-    // }
 
     if (this.velocity_v && !this.static) {
       ctx.beginPath();
@@ -448,12 +1052,39 @@ class ball {
 
   }
 
+  // draws a small HUD near mouse showing info about the planet
+  drawHUD(ctx, mouseX, mouseY) {
+    const padding = 8;
+    const w = 200, h = 80;
+    const x = mouseX + 16, y = mouseY + 16;
+    ctx.save();
+    // background
+    ctx.fillStyle = 'rgba(10,12,14,0.88)';
+    roundRect(ctx, x, y, w, h, 6, true, false);
+    // small planet icon
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x + 28, y + 28, 18, 0, Math.PI * 2);
+    ctx.clip();
+    // draw a tiny version of the planet texture
+    if (this.texCanvas) ctx.drawImage(this.texCanvas, x + 10, y + 10, 36, 36);
+    ctx.restore();
+
+    // text
+    ctx.fillStyle = 'white';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(`Name: ${this.text || 'Unnamed'}`, x + 56, y + 22);
+    ctx.fillText(`Radius: ${Math.round(this.rad)}`, x + 56, y + 38);
+    ctx.fillText(`Mass: ${this.mass}`, x + 56, y + 54);
+    ctx.restore();
+  }
+
   drawText() {
     ImGui.text(
       this.text,
       ((this.pos[0]+this.rad)*scale+originX),
       ((this.pos[1]+this.rad/2)*scale+originY),
-      "18px sans-serif"
+      "white"
     )
   }
 
@@ -474,7 +1105,7 @@ class ball {
 
       // ctx.moveTo(this.futureHist[0][0],this.futureHist[0][1])
 
-      for (let i = 1; i < this.futureHist.length; i++) {
+      for (let i = 1; i < this.futureHist.length; i+=Math.max(1,parseInt(.0001/scale))) {
 
         if (isLocked == true && balls[lockedBallIndex].futureHist.length > i && relative_trajectories.state) {
           ctx.lineTo(
@@ -690,39 +1321,39 @@ balls[balls.push(new ball(windowWidth/2, windowHeight/2, true, 1.989e30, [0,0], 
 balls[spawn(57.91e6/scale_modifer, 2.44e3/scale_modifer, "gray", balls[0], 3.285e23)-1].text = "Mercury";
 
 // Venus
-balls[spawn(108.2e6/scale_modifer, 6.052e3/scale_modifer, "orange", balls[0], 4.87e24)-1].text = "Venus";
+// balls[spawn(108.2e6/scale_modifer, 6.052e3/scale_modifer, "orange", balls[0], 4.87e24)-1].text = "Venus";
 
-// Earth
-const earth = spawn(149.6e6/scale_modifer, 6.378e3/scale_modifer, "green", balls[0], 5.97e24);
-balls[earth-1].text = "Earth";
-  // Earth - Moon
-  balls[spawn(384.4e3/scale_modifer, 1.737e3/scale_modifer, "grey", balls[earth-1], 7.35e22)-1].text = "Moon";
+// // Earth
+// const earth = spawn(149.6e6/scale_modifer, 6.378e3/scale_modifer, "green", balls[0], 5.97e24);
+// balls[earth-1].text = "Earth";
+//   // Earth - Moon
+//   balls[spawn(384.4e3/scale_modifer, 1.737e3/scale_modifer, "grey", balls[earth-1], 7.35e22)-1].text = "Moon";
 
-// Mars
-const mars = spawn(227.9e6/scale_modifer, 3.397e3/scale_modifer, "red", balls[0], 6.42e23)
-balls[mars-1].text = "Mars";
-  // Mars - Phobos
-  balls[spawn(9.378e3/scale_modifer, 11.1/scale_modifer, "gray", balls[mars-1], 1.065e16)-1].text = "Phobos";
-  // Mars - Deimos
-  balls[spawn(23.5e3/scale_modifer, 6.2/scale_modifer, "gray", balls[mars-1], 4.4e15)-1].text = "Deimos";
+// // Mars
+// const mars = spawn(227.9e6/scale_modifer, 3.397e3/scale_modifer, "red", balls[0], 6.42e23)
+// balls[mars-1].text = "Mars";
+//   // Mars - Phobos
+//   balls[spawn(9.378e3/scale_modifer, 11.1/scale_modifer, "gray", balls[mars-1], 1.065e16)-1].text = "Phobos";
+//   // Mars - Deimos
+//   balls[spawn(23.5e3/scale_modifer, 6.2/scale_modifer, "gray", balls[mars-1], 4.4e15)-1].text = "Deimos";
 
-// Jupiter
-const jupiter = spawn(778.3e6/scale_modifer, 71.492e3/scale_modifer, "brown", balls[0], (1.9e27))
-balls[jupiter-1].text = "Jupiter";
-  // Jupiter - Io
-  balls[spawn(421.7e3/scale_modifer, 1.82e3/scale_modifer, "yellow", balls[jupiter-1], (8.93e22))-1].text = "Io";
-  // Jupiter - Europa
-  balls[spawn(670.9e3/scale_modifer, 1.56e3/scale_modifer, "white", balls[jupiter-1], 4.8e22)-1].text = "Europa";
-  // Jupiter - Ganymede
-  balls[spawn(1_070e3/scale_modifer, 2.63e3/scale_modifer, "gray", balls[jupiter-1], 1.4819e23)-1].text = "Ganymede";
-  // Jupiter - Callisto
-  balls[spawn(1_882e3/scale_modifer, 2.41e3/scale_modifer, "gray", balls[jupiter-1], 1.0759e23)-1].text = "Callisto";
+// // Jupiter
+// const jupiter = spawn(778.3e6/scale_modifer, 71.492e3/scale_modifer, "brown", balls[0], (1.9e27))
+// balls[jupiter-1].text = "Jupiter";
+//   // Jupiter - Io
+//   balls[spawn(421.7e3/scale_modifer, 1.82e3/scale_modifer, "yellow", balls[jupiter-1], (8.93e22))-1].text = "Io";
+//   // Jupiter - Europa
+//   balls[spawn(670.9e3/scale_modifer, 1.56e3/scale_modifer, "white", balls[jupiter-1], 4.8e22)-1].text = "Europa";
+//   // Jupiter - Ganymede
+//   balls[spawn(1_070e3/scale_modifer, 2.63e3/scale_modifer, "gray", balls[jupiter-1], 1.4819e23)-1].text = "Ganymede";
+//   // Jupiter - Callisto
+//   balls[spawn(1_882e3/scale_modifer, 2.41e3/scale_modifer, "gray", balls[jupiter-1], 1.0759e23)-1].text = "Callisto";
 
-// Saturn
-balls[spawn(1_429e6/scale_modifer, 60.268e3/scale_modifer, "yellow", balls[0], 5.68e26)-1].text = "Saturn";
+// // Saturn
+// balls[spawn(1_429e6/scale_modifer, 60.268e3/scale_modifer, "yellow", balls[0], 5.68e26)-1].text = "Saturn";
 
-// Uranus
-balls[spawn(2_871e6/scale_modifer, 25.559e3/scale_modifer, "cyan", balls[0], 8.68e25)-1].text = "Uranus";
+// // Uranus
+// balls[spawn(2_871e6/scale_modifer, 25.559e3/scale_modifer, "cyan", balls[0], 8.68e25)-1].text = "Uranus";
 
 // Neptune
 balls[spawn(4_498e6/scale_modifer, 24.764e3/scale_modifer, "lightblue", balls[0], 1.02e26)-1].text = "Neptune";
@@ -759,14 +1390,45 @@ function predictFunc() {
   }
 }
 
+// Button handlers
 predict.onClick(predictFunc)
 
+earth_spawn.onClick(() => {
+  spawn(((Math.random()*1_000_000)+50_357)/scale_modifer, 1, "gray", balls[lockedBallIndex], 9.3e20)
+})
+
+earth_spawn_nonCirc.onClick(() => {
+  const asteroid = spawn(((Math.random()*1_000_000)+50_357)/scale_modifer, 1, "gray", balls[lockedBallIndex], 9.3e20)
+  balls[asteroid-1].vel = mulVector(balls[asteroid-1].vel, [1,1])
+})
+
+moon_spawn.onClick(() => {
+  if (isLocked) {
+    // moon orbit rad: 384,400 km : 250
+    // moon radius 1,737.5 km : 5
+    // moon mass: 7.348e+22 kg : 0
+    const moon = spawn(384_400/scale_modifer, 1737.5/scale_modifer, "gray", balls[lockedBallIndex], 7.348e22)
+    balls[moon-1].text = `Moon #${moon}`
+  }
+})
+
 // imgui.width = 350;
-function animate() {
+function animate(t) {
   // ctx.fillStyle = 'rgba(0,0,0,0.1)'
 	// ctx.fillRect(0, 0, windowWidth, windowHeight);
   ctx.save();
 	ctx.clearRect(0, 0, windowWidth, windowHeight);
+  
+  // drawEquipotential();
+
+  const star = BallShared.starCanvas;
+  // tile or draw centered, simpler: draw at full canvas scaled to ctx canvas size
+  // assume ctx.canvas exists
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 0.20;
+  ctx.drawImage(star, 0, 0, ctx.canvas.width, ctx.canvas.height);
+  ctx.restore();
 
   dt = dt_slider.state;
 
@@ -787,13 +1449,15 @@ function animate() {
     const centerY = c.height / 2;
 
     // Adjust origin to keep the ball centered
-    originX = parseInt(centerX - (ball.pos[0] * scale) - (ball.vel[0] * dt * scale) );
-    originY = parseInt(centerY - (ball.pos[1] * scale) - (ball.vel[1] * dt * scale) );
+    originX = parseInt(centerX - (ball.pos[0] * scale) - (ball.vel[0] * dt * scale * !pause) );
+    originY = parseInt(centerY - (ball.pos[1] * scale) - (ball.vel[1] * dt * scale * !pause) );
   } else if (!balls[lockedBallIndex]) {
     isLocked = false;
     lockedBallIndex = -1;
   }
 
+
+  // Instead of translating canvas, translate when drawing
   ctx.translate(originX, originY);
   ctx.scale(scale, scale);
 
@@ -802,38 +1466,16 @@ function animate() {
 
   if ((pred_toggle.state && frame_count % 10 == 0)) predictFunc()
 
-  if (earth_spawn.state) {
-
-    spawn((Math.random()*1_000_0.00)+50_3.57, 1, "gray", balls[0], 1)
-    
-    earth_spawn.state = false;
-  }
-
-  if (earth_spawn_nonCirc.state) {
-
-    spawn((Math.random()*1_000_0.00)+50_3.57, 1, "gray", balls[0], 1)
-    balls[balls.length-1].vel = mulVector(balls[balls.length-1].vel, [0.75,0.75])
-
-    earth_spawn_nonCirc.state = false;
-  }
-  
-  if (moon_spawn.state && isLocked) {
-
-    // moon orbit rad: 384,400 km : 250
-    // moon radius 1,737.5 km : 5
-    // moon mass: 7.348e+22 kg : 0
-    spawn(384_4.00, 1_7.35, "gray", balls[lockedBallIndex], 7.348*(10**16)/10^11)
-
-    moon_spawn.state = false;
-  }
-
   for (var i = 0; i < balls.length; i++) {
     const ball = balls[i];
     
     ball.history_toggle = history.state
     
     if (!pause) ball.update(i, true);
-    ball.draw();
+
+    const sun = { pos: [ 0, 0 ] }; // normalized direction to your star (x,y,z)
+
+    ball.draw({ ctx, time: t * 0.1, sun });
 
     if (predicted > 0 && pred_history.state) {
       ball.drawPred();
@@ -866,7 +1508,7 @@ function animate() {
 
   imgui.draw();
 
-  tutorial.draw();
+  // tutorial.draw();
   
   frame_count++
   if (frame_count >= 60) frame_count = 0
@@ -894,7 +1536,7 @@ let mouse = false;
 let mx = 0;
 let my = 0;
 let isLocked = true;
-let lockedBallIndex = 0;
+let lockedBallIndex = 2;
 
 c.addEventListener('mousedown', (e) => {
   if ((!imgui.checkBounding(e.x, e.y) && !tutorial.checkBounding(e.x, e.y)) && e.button == 0) {
@@ -1005,10 +1647,152 @@ document.addEventListener("keydown", (e) => {
   // if (dt < 0) dt = 0
 })
 
+
+function resizeCanvas() {
+  const canvas = document.getElementById('myCanvas');
+  if (canvas) {
+    canvas.width = window.innerWidth;
+    windowWidth = window.innerWidth;
+    canvas.height = window.innerHeight;
+    windowHeight = window.innerHeight;
+    
+  }
+}
+
+window.addEventListener('resize', resizeCanvas);
+
 // Implement touch at somepoint
 // c.addEventListener("pointerdown", (e) => {
 //   console.log(e)
 // })
+
+function drawEquipotentialGradient() {
+
+  const step = 3;
+
+  const contourSpacing = 1e9; // adjust this (smaller = denser lines)
+  const contourFrequency = 2.0; // how many waves per potential decade
+  const brightness = 0.7; // overall brightness
+
+  // create image buffer once per frame
+  const imgData = ctx.createImageData(windowWidth, windowHeight);
+  const data = imgData.data;
+
+  // helper to write a pixel into the image buffer
+  function writePixel(px, py, r, g, b, a = 255) {
+    if (px < 0 || py < 0 || px >= windowWidth || py >= windowHeight) return;
+    const i = (py * windowWidth + px) * 4;
+    data[i] = r;
+    data[i + 1] = g;
+    data[i + 2] = b;
+    data[i + 3] = a;
+  }
+
+  for (let y = 0; y <= windowHeight; y+=step) {
+    for (let x = 0; x <= windowWidth; x+=step) {
+      
+      // convert screen coords → world coords
+      const worldX = (x - originX) / scale;
+      const worldY = (y - originY) / scale;
+
+      let potential = 0
+      for (var i = 0; i < balls.length; i++) {
+        const ball = balls[i];
+        
+        const dx = worldX - ball.pos[0];
+        const dy = worldY - ball.pos[1];
+        potential += -g * ball.mass / Math.sqrt(dx*dx + dy*dy + 1)
+      }
+
+      // normalize and draw when potential crosses multiples of contourSpacing
+      // const mod = Math.abs(potential % contourSpacing);
+      // if (mod < contourSpacing * 0.02) { // 2% band thickness
+      //   ctx.fillStyle = "rgba(255, 255, 100, 0.7)";
+      //   ctx.fillRect(x, y, 1, 1);
+      // }
+
+      // produce a smooth shade from potential (stable-ish to pan/zoom)
+      // const v = Math.log10(Math.abs(potential) + 1);
+      const v = Math.log1p(Math.abs(potential)) * Math.sign(potential);
+      let shade = Math.sin(v * contourFrequency) * 0.5 + 0.5;
+      shade = Math.pow(shade, 1.2); // curve for nicer contrast
+      const r = Math.max(0, Math.min(255, Math.floor(shade * 255 * brightness)));
+      const green = Math.max(0, Math.min(255, Math.floor((shade * 255 * brightness) + 40)));
+      const b = 150;
+
+      // fill a step x step block in the image buffer (clamped to canvas)
+      const maxDy = Math.min(step, windowHeight - y);
+      const maxDx = Math.min(step, windowWidth - x);
+      for (let dy = 0; dy < maxDy; dy++) {
+        for (let dx = 0; dx < maxDx; dx++) {
+          writePixel(x + dx, y + dy, r, green, b, 255);
+        }
+      }
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+}
+
+function drawEquipotential() {
+  const step = 3;              // pixel sampling
+  const contourSpacing = 1; // distance between lines (in potential space)
+  const contourSharpness = 1e-20; // thickness of each line
+  const potentialScale = 1e-6;
+
+  const w = windowWidth;
+  const h = windowHeight;
+  const imgData = ctx.createImageData(w, h);
+  const data = imgData.data;
+
+  // Adjust contour scaling based on zoom — this is the key
+  const zoomCompensation = scale; // thinner when zoomed in
+
+  let idx = 0;
+  for (let y = 0; y < h; y += step) {
+    for (let x = 0; x < w; x += step) {
+      const wx = (x - originX) / scale;
+      const wy = (y - originY) / scale;
+
+      // Sum potentials
+      let potential = 0;
+      for (const ball of balls) {
+        const dx = wx - ball.pos[0];
+        const dy = wy - ball.pos[1];
+        potential += -ball.mass / Math.sqrt(dx * dx + dy * dy + 1);
+      }
+
+      // Warp potential space (log compression)
+      const warped = Math.log10(Math.abs(potential) * potentialScale + 1);
+
+      // Adjust wave frequency by zoom to keep lines visually consistent
+      const wave = Math.sin(warped / (contourSpacing / zoomCompensation));
+      const line = Math.exp(-Math.pow(wave / (contourSharpness / zoomCompensation), 2));
+
+      const brightness = line * 255;
+      const r = 255;
+      const g = 255;
+      const b = brightness * 0.5;
+      const a = brightness;
+
+      for (let sy = 0; sy < step; sy++) {
+        for (let sx = 0; sx < step; sx++) {
+          const px = (x + sx);
+          const py = (y + sy);
+          if (px >= w || py >= h) continue;
+          const i = (py * w + px) * 4;
+          data[i] = r;
+          data[i + 1] = g;
+          data[i + 2] = b;
+          data[i + 3] = a;
+        }
+      }
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+}
+
 
 window.requestAnimationFrame(animate);
 

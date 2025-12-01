@@ -1,0 +1,1897 @@
+<html>
+  <head>
+    <!-- <script defer src="https://analytics.theuntitledgoose.com/script.js" data-website-id="e6553917-d87e-428f-aa61-f09ff4315db7"></script> -->
+	<script type="module" src="https://cdn.jsdelivr.net/gh/TheUntitledGoose/imgui-js@main/imgui.js"></script>
+  <script src="graphics.js"></script>
+  <script src="csv.js"></script>
+  <style>
+    html, body {
+      touch-action: none; /* Disables touch gestures, including zooming */
+    }
+
+    canvas {
+      touch-action: none;
+    }
+
+    body {
+      background-color: black;
+      overflow: hidden;
+      margin: 0;
+    }
+  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+</head>
+  <body><canvas id="myCanvas" width="1280" height="607"></canvas> 
+<!-- <script src="imgui.js"></script> -->
+<script type="module">
+
+// import { ImGui } from "./imgui.js"
+
+const c = document.getElementById("myCanvas");
+const ctx = c.getContext("2d");
+
+let windowWidth = window.innerWidth;
+let windowHeight = window.innerHeight;
+
+// TUTORIAL //
+const tut_w = 275
+let tutorial = new ImGui(windowWidth/2-tut_w/2, 50, tut_w, 100, c);
+
+tutorial.title = "TUTORIAL";
+
+tutorial.staticText("PC Only! Mobile is hard", undefined, true)
+tutorial.staticText("-------CONTROLS-------", "gold", true)
+tutorial.staticText("Left Click to move around", undefined, true)
+tutorial.staticText("Right click on body to lock on.\nIf locked on, right click away to unlock.", undefined, true)
+tutorial.staticText("Scroll wheel to zoom in and out\n(This is a very large map, real-life scaled)", undefined, true)
+tutorial.staticText("Space to pause time.", undefined, true)
+tutorial.staticText("Keys 1-9 to switch between bodies", undefined, true)
+tutorial.staticText("Up Arrow Key to scroll in.\nDown Arrow Key to scroll out.", undefined, true)
+tutorial.staticText("-------GENERAL--------", "gold", true)
+tutorial.staticText("It's slightly broken right now\nSpawning doesn't work right now.", undefined, true)
+tutorial.staticText("For real-life time scaling,\nuse this speedup time:\n0.000023148", undefined, true)
+tutorial.button("Real-life time scaling", true).onClick(() => {
+  dt = 0.000023148
+})
+
+
+// tutorial.init();
+
+// /TUTORIAL //
+
+
+let imgui = new ImGui(100, 80, 400, 100, c);
+
+let fps = imgui.staticText("FPS: 0")
+
+imgui.staticText("UI")
+let history = imgui.checkbox("Show History (Reduces Performance)", true);
+let pred_history = imgui.checkbox("Show Predictions (Reduces Performance)", true);
+
+let earth_v_checkbox = imgui.checkbox("Show Velocities", false);
+let earth_a_checkbox = imgui.checkbox("Show Labels", true);
+
+let relative_trajectories = imgui.checkbox("Draw Relative Trajectories", true);
+
+imgui.staticText("")
+imgui.staticText("Spawn (Lock onto body first)")
+let earth_spawn = imgui.button("Spawn Asteroid");
+let earth_spawn_nonCirc = imgui.button("Spawn Asteroid: Non-Circular Orbit");
+let moon_spawn = imgui.button("Spawn Moon");
+
+imgui.staticText("")
+imgui.staticText("N-Body Prediction")
+let predict = imgui.button("Predict Orbits");
+let pred_toggle = imgui.checkbox("Toggle Continuous Prediction (Reduces Performance)", false);
+let unsafe_toggle  = imgui.checkbox("Unsafe values count (WILL CRASH/FREEZE)", false, "red");
+let predict_slide = imgui.slider(0, 10_000, undefined, 500, {text: "Steps"});
+let predicted = 0;
+let dt_slider = imgui.slider(0.0000001, 2, undefined, 1, {text: "Speedup", float: true});
+
+let history_length = 5000;
+let history_slider = imgui.slider(0, history_length, undefined, history_length, {text: "History Selector"});
+
+imgui.init();
+
+imgui.selected = false;
+imgui.hidden = true;
+
+
+document.addEventListener("contextmenu", function (e) { 
+  e.preventDefault(); 
+})
+
+// let scale = 0.0005;
+// let scale = 0.02;
+let scale = 0.0000002;
+let originX = windowWidth/2;
+let originY = windowHeight/2;
+
+let pause = false;
+
+let lastTick = Date.now();
+
+c.height = windowHeight;
+c.width = windowWidth;
+
+// -----------------------------
+// Shared resources for all ball instances
+// -----------------------------
+const BallShared = {
+  starCanvas: null,
+  starCanvasSize: 1024,
+  makeStarfield(size = 1024, count = 1000) {
+    if (this.starCanvas && this.starCanvas.width === windowWidth) return this.starCanvas;
+    const c = document.createElement('canvas');
+    c.width = windowWidth;
+    c.height = windowHeight;
+    const cx = c.getContext('2d');
+    cx.fillStyle = 'black';
+    cx.fillRect(0, 0, windowWidth, windowHeight);
+
+    // random small stars: vary brightness and size
+    for (let i = 0; i < count; i++) {
+      const x = Math.random() * windowWidth;
+      const y = Math.random() * windowHeight;
+      const s = Math.pow(Math.random(), 2.2) * 2.2; // bias small
+      const alpha = 0.2 + Math.random() * 0.9;
+      cx.fillStyle = `rgba(255,255,255,${alpha})`;
+      cx.beginPath();
+      cx.arc(x, y, s, 0, Math.PI * 2);
+      cx.fill();
+    }
+    // subtle smeared layer for faint nebula/dust
+    cx.globalCompositeOperation = 'lighter';
+    cx.fillStyle = 'rgba(40,50,100,0.02)';
+    for (let i = 0; i < 60; i++) {
+      const x = Math.random() * windowWidth;
+      const y = Math.random() * windowHeight;
+      const r = 20 + Math.random() * 200;
+      cx.beginPath();
+      cx.ellipse(x, y, r, r * (0.2 + Math.random() * 1.2), Math.random() * Math.PI, 0, Math.PI * 2);
+      cx.fill();
+    }
+    cx.globalCompositeOperation = 'source-over';
+    this.starCanvas = c;
+    return c;
+  }
+};
+
+
+function addVec(vec1, vec2) {
+  	var retVec = [];
+	  retVec[0] = vec1[0] + vec2[0];
+    retVec[1] = vec1[1] + vec2[1];
+  	return retVec;
+}
+
+function subVec(vec1, vec2) {
+  	var retVec = [];
+	  retVec[0] = vec1[0] - vec2[0];
+    retVec[1] = vec1[1] - vec2[1];
+  	return retVec;
+}
+
+function mulVector(vec1, vec2) {
+  return [vec1[0] * vec2[0], vec1[1] * vec2[1]]
+}
+
+function rect(startx, starty, endx, endy) {
+  const of = ctx.fillStyle;
+  ctx.fillStyle = 'white'
+  ctx.beginPath();
+  ctx.rect(startx, starty, endx, endy);
+  ctx.stroke();
+  ctx.fillStyle = of;
+}
+
+class Point {
+  constructor(x, y) {this.x = x;this.y = y;}
+}
+
+class Quadtree {
+  constructor(topLeft, bottomRight) {
+    //   { x, y }
+    this.topLeft = topLeft;
+    //   { x, y }
+    this.botRight = bottomRight;
+
+    this.n = null;
+
+    // Another Quadtree (recursive)
+    this.topLeftTree = null;
+    this.topRightTree = null;
+    this.botLeftTree = null;
+    this.botRightTree = null;
+  }
+
+  insert(ball) {
+    // if no point
+    if (ball === null) {
+      return;
+    }
+
+    // If point not in boundary of quad
+    if (!this.inBoundary(ball.pos)) {
+      return;
+    }
+
+    // We are at a quad of unit area
+    // We cannot subdivide this quad further
+    if (Math.abs(this.topLeft.x - this.botRight.x) <= 1 || Math.abs(this.topLeft.y - this.botRight.y) <= 1) {
+      if (this.n === null) {
+        this.n = node;
+      }
+      return;
+    }
+
+    // decide where the point belongs in the 4 new quad trees
+    if ((this.topLeft.x + this.botRight.x) / 2 >= node.pos.x) {
+      // Indicates topLeftTree
+      if ((this.topLeft.y + this.botRight.y) / 2 >= node.pos.y) {
+        if (this.topLeftTree === null) {
+          this.topLeftTree = new Quadtree(
+            this.topLeft, 
+            new Point((this.topLeft.x + this.botRight.x) / 2, (this.topLeft.y + this.botRight.y) / 2)
+          );
+        }
+        this.topLeftTree.insert(node);
+      }
+      // Indicates botLeftTree
+      else {
+        if (this.botLeftTree === null) {
+          this.botLeftTree = new Quadtree(
+            new Point(this.topLeft.x, (this.topLeft.y + this.botRight.y) / 2), 
+            new Point((this.topLeft.x + this.botRight.x) / 2, this.botRight.y)
+          );
+        }
+        this.botLeftTree.insert(node);
+      }
+    } else {
+      // Indicates topRightTree
+      if ((this.topLeft.y + this.botRight.y) / 2 >= node.pos.y) {
+        if (this.topRightTree === null) {
+          this.topRightTree = new Quadtree(
+            new Point((this.topLeft.x + this.botRight.x) / 2, this.topLeft.y), 
+            new Point(this.botRight.x, (this.topLeft.y + this.botRight.y) / 2)
+          );
+        }
+        this.topRightTree.insert(node);
+      }
+      // Indicates botRightTree
+      else {
+        if (this.botRightTree === null) {
+          this.botRightTree = new Quadtree(
+            new Point((this.topLeft.x + this.botRight.x) / 2, (this.topLeft.y + this.botRight.y) / 2), 
+            this.botRight
+          );
+        }
+        this.botRightTree.insert(node);
+      }
+    }
+
+  }
+
+  // Find a node in a quadtree
+  search(p) {
+    // Current quad cannot contain it
+    if (!this.inBoundary(p)) {
+      return 0;  // Return 0 if point is not found
+    }
+
+    // We are at a quad of unit length
+    // We cannot subdivide this quad further
+    if (this.n !== null) {
+      return this.n;
+    }
+
+    if ((this.topLeft.x + this.botRight.x) / 2 >= p.x) {
+      // Indicates topLeftTree
+      if ((this.topLeft.y + this.botRight.y) / 2 >= p.y) {
+        if (this.topLeftTree === null) {
+          return 0;
+        }
+        return this.topLeftTree.search(p);
+      }
+      // Indicates botLeftTree
+      else {
+        if (this.botLeftTree === null) {
+          return 0;
+        }
+        return this.botLeftTree.search(p);
+      }
+    } else {
+      // Indicates topRightTree
+      if ((this.topLeft.y + this.botRight.y) / 2 >= p.y) {
+        if (this.topRightTree === null) {
+          return 0;
+        }
+        return this.topRightTree.search(p);
+      }
+      // Indicates botRightTree
+      else {
+        if (this.botRightTree === null) {
+          return 0;
+        }
+        return this.botRightTree.search(p);
+      }
+    }
+  }
+
+  // Check if current quadtree contains the point
+  inBoundary(p) {
+    return p.x >= this.topLeft.x && p.x <= this.botRight.x && p.y >= this.topLeft.y && p.y <= this.botRight.y;
+  }
+
+  
+
+}
+
+
+const distance_factor = 1;
+const g = (6.637*(10**-15)); // 6.637 * 10**-11 ; -23/-21 when changed by 10^6  (10^6)^2  like the r^2
+const small_body_mass = 10**13; // earth is 10^24, so reduce by 10^11
+const coeff = 1;
+
+let frame_count = 0;
+let dt = 1;
+// const g = 6.637*(10**-11); // real
+// const g = 6.637*(10**-4);
+// const g = 0.001;
+
+function calcAcc(ball_, int, apply = true) {
+  for (var j = int+1; j < balls.length; j++) {
+    const baller = balls[j];
+    // if (baller.check()) continue;
+    let diff = apply ? subVec(baller.pos, ball_.pos) : subVec(baller.futurePos, ball_.futurePos);
+
+    let dist = diff[0]**2 + diff[1]**2
+
+    if (dist <= ball_.rad*ball_.rad + baller.rad*baller.rad && apply) {
+
+      // dist = Math.sqrt( (diff[0]**2 + diff[1]**2)  );
+
+      // if (ball_.rad < baller.rad) {
+      //   balls.splice(int, 1);
+      // } else {
+      //   balls.splice(j, 1);
+      // }
+
+      // instead of deleting ^
+      // set ball to static, and rad to 0, so that the trail disappears slowly
+      // check whicher is smaller
+      if (ball_.rad < baller.rad) {
+        ball_.static = true;
+        ball_.mass = 0;
+        ball_.vel = [0,0]
+        ball_.rad = 0;
+        ball_.text = "";
+      } else {
+        baller.static = true;
+        baller.mass = 0;
+        baller.vel = [0,0]
+        baller.rad = 0;
+        baller.rad = 0;
+      }
+
+
+      // dist, diff = ball.applyCollisions(ball_, baller, dist);
+      // diff = subVec(baller.pos, ball_.pos);
+    } else {
+      dist = Math.sqrt( dist );
+    }
+    
+    // get normalized vector
+    // hypotanous / hyp = 1
+    // side / hyp = normalized
+    
+    const inv_distance = 1/Math.max(dist,0);
+    
+    const normalized_x = diff[0] * inv_distance;
+    const normalized_y = diff[1] * inv_distance;
+    
+    // apply inverse square law to gravity
+    
+    const inverse_square_dropoff = inv_distance * inv_distance
+    
+    // F = g * ( m_1 * m_2 ) / r^2
+    // const g = 6.637*(10**-11)
+    let x_1acc = 0;
+    let y_1acc = 0;
+
+    let x_2acc = 0;
+    let y_2acc = 0;
+    
+    if (!ball_.static) {
+      // Instead of setting acc, and vel, return the values so..
+      // That they could be could be added outside the calculation func.
+
+      x_1acc = normalized_x * g * (baller.mass * inverse_square_dropoff);
+      y_1acc = normalized_y * g * (baller.mass * inverse_square_dropoff);
+
+      if (apply) {
+        ball_.acc = [x_1acc, y_1acc];
+      } else {
+        ball_.futureAcc = [x_1acc, y_1acc];
+      }
+
+      // ball_.acc[0] *= dt
+      // ball_.acc[1] *= dt
+
+
+      if (apply) {
+        ball_.vel = addVec(mulVector(ball_.acc, [dt,dt]), ball_.vel);
+      } else {
+        ball_.futureVel = addVec(ball_.futureAcc, ball_.futureVel);
+      }
+    }
+
+    if (!baller.static) {
+      // Instead of setting acc, and vel, return the values so..
+      // That they could be could be added outside the calculation func.
+      x_2acc = -normalized_x * g * (ball_.mass * inverse_square_dropoff);
+      y_2acc = -normalized_y * g * (ball_.mass * inverse_square_dropoff);
+
+      if (apply) {
+        baller.acc = [x_2acc, y_2acc];
+      } else {
+        baller.futureAcc = [x_2acc, y_2acc];
+      }
+
+      // baller.acc[0] *= dt
+      // baller.acc[1] *= dt
+
+      if (apply) {
+        baller.vel = addVec(mulVector(baller.acc, [dt,dt]), baller.vel);
+      } else {
+        baller.futureVel = addVec(baller.futureAcc, baller.futureVel);
+      }
+      
+    }
+  }
+  // If last body, return undefined for all values, since it crashes otherwise
+  // return [undefined,undefined,undefined,undefined]
+}
+
+class ball {
+	constructor(x=0, y=0, static_=false, mass=1, vel=[0,0], rad=1, clr="white", grav_=0, options = {}) {
+    this.history = [];
+    this.futureHist = [];
+    
+    this.rad = rad;
+    this.clr = clr;
+    this.clr_hsl = 0;
+    this.text = ""
+    this.velocity_v = false;
+    this.acc_v = false;
+    this.grav = grav_;
+    
+    this.mass = mass;
+    this.static = static_;
+
+    this.pos = [x, y];
+    this.vel = vel;
+    this.acc = [0, 0];
+
+    this.futurePos = [x, y];
+    this.futureVel = vel;
+    this.futureAcc = [0, 0];
+
+    this.history_toggle = true;
+    // this.history_length = 5000
+
+    // visual options
+    this.quality = options.quality || 1.0; // 0.5 to 1.5
+    this.seed = options.seed || Math.floor(Math.random() * 100000);
+    this.ring = { 
+      enabled: !!options.rings || false, 
+      inner: 1.5, outer: 2.3, 
+      tilt: (options.ringTilt ?? 0.4), 
+      color: options.ringColor || 'rgba(200,180,140,0.6)', 
+      speed: options.ringSpeed || 0.02 
+    };
+    this.atmosphere = { 
+      color: options.atmosColor || 'rgba(70,150,255,0.15)', 
+      width: options.atmosWidth || 0.12 
+    };
+    this.clouds = { 
+      enabled: (options.clouds ?? true), 
+      speed: options.cloudSpeed || 0.02, 
+      opacity: (options.cloudOpacity ?? 0.45) 
+    };
+
+    // offscreen canvases for layers
+    this.texCanvas = null;      // base terrain + night lights + baked lighting (static)
+    this.cloudCanvas = null;    // cloud texture (reused and offset per-frame)
+    this.ringCanvas = null;     // ring pre-rendered
+    this._dirtyTexture = true;  // regenerate when radius/seed change
+    this._dirtyRings = true;
+
+    // store timestamp for animations
+    this._time = 0;
+
+    // starfield shared
+    BallShared.makeStarfield(1024, 1500);
+  }
+  
+  check(x,y) {
+    // check if outside bounds
+    // console.log(originX, originY)
+    const minX = (x - c.getBoundingClientRect().left - originX) * scale
+    const minY = (y - c.getBoundingClientRect().top - originY) * scale
+
+    if (this.clr == "yellow") console.log((x*2)/scale,minX)
+    if ((x) < (minX-this.rad/2)) return true;
+    if ((x) > (minX+windowWidth+this.rad/2)) return true;
+    if ((y) < (minY-this.rad)) return true;
+    if ((y) > (minY+windowHeight+this.rad)) return true;
+    return false
+  }
+
+  static applyCollisions(obj_1, obj_2, dist2) {
+    if (obj_1 == obj_2) return;
+    // const dist1 = 
+    //   Math.pow(obj_1.pos[0] - obj_2.pos[0],2)
+    //   +
+    //   Math.pow(obj_1.pos[1] - obj_2.pos[1],2);
+
+    // if (dist1 < (obj_1.rad+obj_2.rad)*(obj_1.rad+obj_2.rad) ) {
+    // var dist2 = Math.sqrt(dist1);
+    const collisionVec = subVec(obj_1.pos, obj_2.pos);
+    const n = [collisionVec[0]/dist2, collisionVec[1]/dist2]
+    const delta = obj_1.rad+obj_2.rad-dist2;
+    // const coeff = 0.5;
+    const n_delta = [0.5*coeff*delta, 0.5*coeff*delta]
+
+    if (!obj_1.static) {
+      const old_pos = obj_1.pos;
+      obj_1.pos = addVec( obj_1.pos, mulVector(n_delta,n) );
+      // obj_1.vel = subVec(obj_1.pos,old_pos);
+    }
+    if (!obj_2.static) {
+      const old_pos = obj_2.pos;
+      obj_2.pos = subVec( obj_2.pos, mulVector(n_delta,n) );
+      // obj_2.vel = subVec(obj_2.pos,old_pos);
+    }
+    const change_pos = subVec(obj_2.pos, obj_1.pos)
+    const dist = Math.sqrt( (change_pos[0]**2 + change_pos[1]**2)  );
+    return dist, change_pos
+    // }
+
+  }
+
+  update(i, apply = true, frame = 1) {
+    // if(this.static) return;
+    // this.acc = [0,0];
+    this.clr_hsl = 0
+    // if(!this.check()) {
+    calcAcc(this, i, apply);
+    // }
+    // console.log(a1, v1, a2, v2)
+
+    if (!apply) {
+      // If not apply, then predict
+      this.futurePos = addVec(mulVector(this.futureVel, [dt, dt]), this.futurePos)
+      if (frame % Math.floor(Math.max(predict_slide.state/100_000, 10)) == 0) this.futureHist.push(this.futurePos);
+      return
+    } else {
+      this.pos = addVec(mulVector(this.vel, [dt, dt]), this.pos);
+    }
+    
+    // this.vel = addVec(this.acc, this.vel)
+
+    // this.pos[0] = parseFloat(this.pos[0].toPrecision(15))
+    // this.pos[1] = parseFloat(this.pos[1].toPrecision(15))
+    
+    // if (frame_count % 10 == 0) {
+      this.history.push(this.pos);
+    // }
+
+    if (this.history.length > history_length) {
+      this.history.shift();
+    }
+  }
+
+  // -----------------------
+  // hover detection & HUD
+  // -----------------------
+  isHovered(mouseX, mouseY) {
+    const dx = mouseX - this.pos[0];
+    const dy = mouseY - this.pos[1];
+    return dx * dx + dy * dy <= this.rad * this.rad;
+  }
+
+  // called when geometry/scale changes
+  markDirty() {
+    this._dirtyTexture = true;
+    this._dirtyRings = true;
+  }
+  
+  // ---------- helpers ----------
+  _ensureTexCanvases() {
+    const size = 128;
+    if (!this.texCanvas || this.texCanvas.width !== size) {
+      this.texCanvas = document.createElement('canvas');
+      this.texCanvas.width = size;
+      this.texCanvas.height = size;
+      this._dirtyTexture = true;
+    }
+    if (!this.cloudCanvas || this.cloudCanvas.width !== size) {
+      this.cloudCanvas = document.createElement('canvas');
+      this.cloudCanvas.width = size;
+      this.cloudCanvas.height = size;
+      this.cloudCanvasCtx = this.cloudCanvas.getContext('2d');
+      this._dirtyCloudPattern = true;
+    }
+    if (!this.ringCanvas) {
+      this.ringCanvas = document.createElement('canvas');
+      this.ringCanvas.width = this.ringCanvas.height = size;
+      this.ringCanvasCtx = this.ringCanvas.getContext('2d');
+      this._dirtyRings = true;
+    }
+  }
+
+  // Example "sunDir" normalization & lifting: accept either {dir:[x,y,z]} or {dir2:[x,y]} or {pos:[x,y,z]} relative to planet.
+  _computeSunDir(sun) {
+    let sx = 1, sy = 0, sz = -0.4;
+    if (!sun) return [sx, sy, sz];
+    if (sun.dir && sun.dir.length === 3) { sx = sun.dir[0]; sy = sun.dir[1]; sz = sun.dir[2]; }
+    else if (sun.dir2 && sun.dir2.length === 2) { sx = sun.dir2[0]; sy = sun.dir2[1]; sz = -0.4; }
+    else if (sun.pos && sun.pos.length === 3) {
+      // direction from surface to sun (world coords)
+      sx = sun.pos[0] - this.pos[0];
+      sy = sun.pos[1] - this.pos[1];
+      sz = sun.pos[2] ?? -200; // if no Z given, assume far in front/back
+    } else if (sun.pos && sun.pos.length === 2) {
+      sx = sun.pos[0] - this.pos[0];
+      sy = sun.pos[1] - this.pos[1];
+      sz = -200;
+    }
+    const len = Math.hypot(sx, sy, sz) || 1;
+    return [sx / len, sy / len, sz / len];
+  }
+  
+  // -----------------------
+  // Generate base planet texture (baked terrain + lighting + nightlights)
+  // This is the most expensive step; done only on dirty or size/seed change.
+  // -----------------------
+  _generateBaseTexture(sunDir3 = [1, 0, -0.4]) {
+    this._ensureTexCanvases();
+    const canvas = this.texCanvas;
+    const ctx = canvas.getContext('2d');
+    const size = canvas.width;
+    ctx.clearRect(0, 0, size, size);
+
+    // create ImageData and fill per-pixel only inside circle
+    const im = ctx.createImageData(size, size);
+    const data = im.data;
+    const cx = size / 2, cy = size / 2;
+    const r = size / 2;
+
+    // small deterministic offset for seed influence
+    const seedOffset = (this.seed % 1000) * 0.001;
+
+    for (let py = 0; py < size; py++) {
+      for (let px = 0; px < size; px++) {
+        const dx = (px + 0.5 - cx) / r; // -1..1
+        const dy = (py + 0.5 - cy) / r;
+        const dist2 = dx * dx + dy * dy;
+        const idx = (py * size + px) * 4;
+
+        if (dist2 > 1.0) {
+          // transparent outside sphere
+          data[idx + 0] = 0;
+          data[idx + 1] = 0;
+          data[idx + 2] = 0;
+          data[idx + 3] = 0;
+          continue;
+        }
+
+        // compute 3D normal on sphere surface
+        const nx = dx;
+        const ny = dy;
+        const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny)); // positive z pointing "out of screen"
+
+        // spherical param coords for noise mapping
+        const u = 0.5 + Math.atan2(nz, nx) / (2 * Math.PI); // approx longitude
+        const v = 0.5 - Math.asin(ny) / Math.PI;            // approx latitude
+
+        // fbm base
+        const freq = 6.0;
+        const nval = fbm2((u + seedOffset) * freq * 1.0, (v + seedOffset) * freq * 1.0, 5);
+
+        // make bands (useful for gas giants) and tiny details
+        const bandNoise = Math.sin((v + fbm2(u * 20.0, v * 20.0) * 0.03) * 60.0) * 0.5 + 0.5;
+        const baseR = lerp(34 / 255, 220 / 255, Math.min(1, Math.pow(nval, 1.1)));
+        const baseG = lerp(60 / 255, 150 / 255, nval * 0.9);
+        const baseB = lerp(60 / 255, 80 / 255, 1 - nval * 0.7);
+
+        // blend in bands slightly
+        const baseColor = [
+          lerp(baseR, 240 / 255, bandNoise * 0.08),
+          lerp(baseG, 200 / 255, bandNoise * 0.06),
+          lerp(baseB, 160 / 255, bandNoise * 0.04),
+        ];
+
+        // lighting: Lambert + small Blinn spec
+        const LdotN = Math.max(0, nx * sunDir3[0] + ny * sunDir3[1] + nz * sunDir3[2]);
+        const ambient = 0.18;
+        const diff = ambient + LdotN * 0.82;
+        // specular estimate
+        const view = [0, 0, 1];
+        const hx = (sunDir3[0] + view[0]) * 0.5;
+        const hy = (sunDir3[1] + view[1]) * 0.5;
+        const hz = (sunDir3[2] + view[2]) * 0.5;
+        const hlen = Math.hypot(hx, hy, hz) || 1;
+        const hxN = hx / hlen, hyN = hy / hlen, hzN = hz / hlen;
+        const spec = Math.pow(Math.max(0, nx * hxN + ny * hyN + nz * hzN), 36) * 0.6;
+
+        // night lights: where LdotN is small show emissive spots using higher-frequency fbm
+        const nightMask = smoothstep(0.0, 0.15, 1.0 - LdotN);
+        const nightNoise = fbm2((u + seedOffset) * 80.0, (v + seedOffset) * 80.0, 4);
+        const night = nightMask * Math.max(0, nightNoise - 0.6) * 3.0;
+
+        const rcol = clamp01((baseColor[0] * diff + spec) + night * 1.2);
+        const gcol = clamp01((baseColor[1] * diff + spec) + night * 0.6);
+        const bcol = clamp01((baseColor[2] * diff + spec) + night * 0.2);
+
+        data[idx + 0] = Math.round(rcol * 255);
+        data[idx + 1] = Math.round(gcol * 255);
+        data[idx + 2] = Math.round(bcol * 255);
+        data[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(im, 0, 0);
+    this._dirtyTexture = false;
+  }
+
+  // -----------------------
+  // Cloud layer generation (fast) - we keep a pattern canvas and shift it each frame
+  // -----------------------
+  _generateCloudPattern() {
+    this._ensureTexCanvases();
+    const c = this.cloudCanvas;
+    const ctx = c.getContext('2d');
+    const size = c.width;
+    ctx.clearRect(0, 0, size, size);
+
+    // draw fbm to cloud canvas - thresholded for puffy clouds
+    const im = ctx.createImageData(size, size);
+    const data = im.data;
+    const seedOffset = (this.seed % 1000) * 0.001 + 77.7;
+
+    for (let py = 0; py < size; py++) {
+      for (let px = 0; px < size; px++) {
+        const u = px / size, v = py / size;
+        // higher frequency
+        let n = fbm2((u + seedOffset) * 8.0, (v + seedOffset) * 8.0, 5) * 1.1;
+        // enhance contrast for cloud shapes
+        n = Math.pow(n, 1.6);
+        const idx = (py * size + px) * 4;
+        const alpha = Math.max(0, Math.min(1, (n - 0.45) * 2.2));
+        // white cloud color
+        data[idx + 0] = 255;
+        data[idx + 1] = 255;
+        data[idx + 2] = 255;
+        data[idx + 3] = Math.round(alpha * 255);
+      }
+    }
+    ctx.putImageData(im, 0, 0);
+
+    // blur to make clouds soft
+    // ctx.globalCompositeOperation = 'source-atop';
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.filter = 'blur(6px)';
+    const temp = document.createElement('canvas');
+    temp.width = temp.height = size;
+    temp.getContext('2d').drawImage(c, 0, 0);
+    ctx.clearRect(0, 0, size, size);
+    ctx.filter = 'none';
+    ctx.drawImage(temp, 0, 0);
+    this._dirtyCloudPattern = false;
+  }
+
+  // -----------------------
+  // Rings pre-render
+  // -----------------------
+  // Replace your old _generateRings with this improved version
+  // Replace your old _generateRings with this improved version
+  _generateRings() {
+    if (!this.ring.enabled) return;
+    this._ensureTexCanvases();
+    const c = this.ringCanvas;
+    const ctx = c.getContext('2d');
+    const w = c.width = 1024; // ensure big enough
+    const h = c.height = w;
+    ctx.clearRect(0, 0, w, h);
+
+    const cx = w / 2;
+    const cy = h / 2;
+
+    // pixel inner/outer radii (based on planet radius)
+    const inner = Math.max(1, Math.round(200 * this.ring.inner));
+    const outer = Math.max(inner + 2, Math.round(200 * this.ring.outer));
+    const ringWidth = outer - inner;
+
+    // density: how many particles (tune for performance)
+    // fewer particles for thin/far rings, more for large close rings
+    const baseDensity = 0.2; // tweak 0.2..2.0
+    const particleCount = Math.max(300, Math.round(ringWidth * ringWidth * baseDensity));
+
+    // pre-parse color, fallback if not provided (we'll use ctx.fillStyle directly)
+    ctx.fillStyle = this.ring.color || 'rgba(220,200,160,0.6)';
+
+    // draw many tiny particles distributed across angle & radius
+    for (let i = 0; i < particleCount; i++) {
+      const ang = Math.random() * Math.PI * 2;           // uniform angle
+      // radius distribution biased slightly toward center of band for density variety
+      const r = inner + Math.pow(Math.random(), 0.9) * ringWidth;
+
+      // elliptical flattening to create tilt illusion (same flatten used in draw())
+      const flatten = 1 - (this.ring.tilt || 0.35); // 0 = fully flat, 1 = no flatten
+      const px = Math.cos(ang) * r;
+      const py = Math.sin(ang) * r * flatten;
+
+      // small tangential particle size (longer along tangent -> continuous arcs)
+      const sizeLong = (1.0 + Math.random() * 3.0) * (1.0 + ringWidth / 40); // length along tangent
+      const sizeShort = Math.max(1, (0.4 + Math.random() * 1.2));            // thickness across ring
+
+      const drawX = cx + px;
+      const drawY = cy + py;
+
+      ctx.save();
+      ctx.translate(drawX, drawY);
+      ctx.rotate(ang + Math.PI / 2); // make particle align tangentially
+      ctx.globalAlpha = (0.35 + Math.random() * 0.6) * 0.9; // randomize alpha
+      // draw a small rounded rectangle / ellipse to represent ring dust
+      ctx.beginPath();
+      ctx.ellipse(0, 0, sizeLong * 0.5, sizeShort * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // apply a smooth radial alpha mask (fade edges)
+    // create mask canvas:
+    const mask = document.createElement('canvas');
+    mask.width = w; mask.height = h;
+    const mx = mask.getContext('2d');
+
+    // radial gradient from center: 0 = transparent inside hole, 1 = opaque in middle, 0 = transparent outside
+    const grad = mx.createRadialGradient(cx, cy, Math.max(0, inner * 0.85), cx, cy, outer * 1.05);
+    // numbers chosen to give soft inner/outer falloff
+    grad.addColorStop(0.0, 'rgba(0,0,0,0)');       // inside hole = transparent
+    grad.addColorStop( (inner / outer) * 0.92, 'rgba(0,0,0,0.0)'); // still transparent near inner edge
+    grad.addColorStop( (inner / outer) * 1.02, 'rgba(0,0,0,1.0)'); // main band area opaque
+    grad.addColorStop(1.0, 'rgba(0,0,0,0.0)');     // outer falloff to transparent
+    mx.fillStyle = grad;
+    mx.fillRect(0, 0, w, h);
+
+    // use mask to punch out / fade the ring: destination-in keeps only where mask has alpha
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.drawImage(mask, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+
+    // optionally add a soft blur (light box blur) to remove harsh pixels — enable if needed
+    // ctx.filter = 'blur(0.8px)';
+    // const tmp = document.createElement('canvas');
+    // tmp.width = tmp.height = w;
+    // tmp.getContext('2d').drawImage(c, 0, 0);
+    // ctx.clearRect(0,0,w,h);
+    // ctx.filter = 'none';
+    // ctx.drawImage(tmp, 0, 0);
+
+    this._dirtyRings = false;
+  }
+
+  
+  // -----------------------
+  // main draw function
+  // options: { ctx, time, sun:{...}, mouse:[x,y], scale, origin }
+  // -----------------------
+  draw(options = {}) {
+
+    const { screenX, screenY, screenR } = options;
+
+    if ((!this.static && scale < 0.0000001) || Math.abs(this.pos[0] - originX) > 1e10 || Math.abs(this.pos[1] - originY) > 1e10) return;
+
+    const ctx = options.ctx || (typeof window !== 'undefined' ? (window.ctx || null) : null);
+    if (!ctx) throw new Error("canvas context required: pass {ctx} to draw()");
+    const t = options.time || (performance ? performance.now() * 0.1 : 0);
+    this._time = t;
+    const sun = options.sun || { dir: [1, 0, -0.4] };
+    // const sunDir3 = this._computeSunDir(sun);
+
+    // ensure canvases
+    // this._ensureTexCanvases();
+
+    // regenerate textures if needed
+    // if (this._dirtyTexture) this._generateBaseTexture(sunDir3);
+    // if (this._dirtyCloudPattern) this._generateCloudPattern();
+    // if (this._dirtyRings) this._generateRings();
+
+    // draw the planet: base texture
+    ctx.save();
+    ctx.translate(this.pos[0], this.pos[1]);
+
+    // screen scale allowance
+    const drawR = this.rad;
+    const size = this.texCanvas?.width || 1024;
+
+    // base terrain (baked)
+    // ctx.save();
+    // ctx.beginPath();
+    // ctx.arc(0, 0, drawR, 0, Math.PI * 2);
+    // ctx.clip();
+    // ctx.drawImage(this.texCanvas, -drawR, -drawR, drawR * 2, drawR * 2);
+    // ctx.restore();
+
+    // clouds: animated by shifting source draw coordinates
+    // if (this.clouds.enabled) {
+    //   const cloudOffset = (t * this.clouds.speed * 30) % this.cloudCanvas.width;
+    //   ctx.save();
+    //   ctx.globalCompositeOperation = 'source-over';
+    //   ctx.globalAlpha = this.clouds.opacity;
+    //   // draw the cloud canvas shifted (wrap)
+    //   const s = this.cloudCanvas;
+    //   // clip to circle
+    //   ctx.beginPath();
+    //   ctx.arc(0, 0, drawR * 1.01, 0, Math.PI * 2);
+    //   ctx.clip();
+    //   // draw two copies to wrap
+    //   ctx.drawImage(s, -drawR - cloudOffset / (s.width / (drawR * 2)), -drawR, drawR * 2, drawR * 2);
+    //   ctx.drawImage(s, -drawR - cloudOffset / (s.width / (drawR * 2)) + drawR * 2, -drawR, drawR * 2, drawR * 2);
+    //   ctx.restore();
+    // }
+
+    // atmosphere rim: nice soft glow using radial gradient
+    // ctx.save();
+    // const rimRad = drawR * (1 + this.atmosphere.width);
+    // const g = ctx.createRadialGradient(0, 0, drawR * 0.95, 0, 0, rimRad);
+    // // choose a subtle color
+    // const atmColor = this.atmosphere.color || 'rgba(70,150,255,0.12)';
+    // g.addColorStop(0.0, 'rgba(0,0,0,0)');
+    // g.addColorStop(0.8, atmColor);
+    // g.addColorStop(1.0, 'rgba(0,0,0,0)');
+    // ctx.globalCompositeOperation = 'lighter';
+    // ctx.fillStyle = g;
+    // ctx.beginPath();
+    // ctx.arc(0, 0, rimRad, 0, Math.PI * 2);
+    // ctx.fill();
+    // ctx.restore();
+
+    // rings — drawn around planet, rotated over time and tilted
+    // if (this.ring.enabled) {
+    //   ctx.save();
+    //   ctx.globalCompositeOperation = 'lighter';
+    //   // tilt and rotate: first tilt by scaling Y
+    //   const tilt = this.ring.tilt;
+    //   // rotate by time * speed
+    //   const angle = t * this.ring.speed;
+    //   ctx.rotate(angle);
+    //   ctx.scale(1, 1 - tilt); // flatten Y to tilt
+    //   // draw ring centered (ringCanvas sized for this.rad*6)
+    //   const rc = this.ringCanvas;
+    //   ctx.drawImage(rc, -rc.width / 2, -rc.height / 2, rc.width, rc.height);
+    //   ctx.restore();
+    // }
+
+    // specular glint (small bright ellipse near sun direction)
+    // ctx.save();
+    // const sdir = sunDir3;
+    // // map sunDir3 to 2D offset on screen: use x,y components and scale by radius
+    // const glintX = sdir[0] * drawR * 0.66;
+    // const glintY = sdir[1] * drawR * 0.66;
+    // ctx.globalCompositeOperation = 'lighter';
+    // ctx.beginPath();
+    // const gx = drawR * 0.18, gy = drawR * 0.08;
+    // ctx.ellipse(glintX, glintY, gx, gy, 0, 0, Math.PI * 2);
+    // ctx.fillStyle = 'rgba(255,250,220,0.55)';
+    // ctx.fill();
+    // ctx.restore();
+
+    // outline to sell roundness (thin)
+    // ctx.beginPath();
+    // ctx.lineWidth = Math.max(1, 2 / (options.scale || 1));
+    // ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    // ctx.arc(0, 0, drawR, 0, Math.PI * 2);
+    // ctx.stroke();
+
+    ctx.restore(); // restore to world transform
+
+
+
+    if (this.history_toggle) {
+      ctx.strokeStyle = "rgba(255,255,255,0.25)"
+      if (this.history.length > 0) {
+        ctx.beginPath();
+        ctx.lineWidth = 2.5*1/scale;
+        if (isLocked == true && balls[lockedBallIndex].history.length > 0 && relative_trajectories.state) {
+          ctx.moveTo(
+            this.history[0][0] - balls[lockedBallIndex].history[0][0] + (balls[lockedBallIndex].pos[0]),
+            this.history[0][1] - balls[lockedBallIndex].history[0][1] + (balls[lockedBallIndex].pos[1])
+          )
+        } else {
+          ctx.moveTo(this.history[0][0],this.history[0][1])
+        }
+
+        for (let i = 1; i < this.history.length; i+=Math.max(1,parseInt(.0001/scale))) {
+          // if (this.check(this.history[i][0],this.history[i][1])) continue
+          if (isLocked == true && balls[lockedBallIndex].history.length > i && relative_trajectories.state) {
+            ctx.lineTo(
+              this.history[i][0] - balls[lockedBallIndex].history[i][0] + (balls[lockedBallIndex].pos[0]),
+              this.history[i][1] - balls[lockedBallIndex].history[i][1] + (balls[lockedBallIndex].pos[1])
+            )
+          } else {
+            ctx.lineTo(
+              this.history[i][0],
+              this.history[i][1]
+            )
+          }
+        }
+        ctx.stroke()
+      }
+    }
+
+    // original
+    // if (this.check(this.pos[0],this.pos[1])) return
+    // ctx.beginPath();
+    // ctx.arc(this.pos[0], this.pos[1], this.rad, 0, 2 * Math.PI);
+    // ctx.fillStyle = this.clr;
+    // ctx.fill();
+
+    if (screenX !== undefined && screenY !== undefined && screenR !== undefined) {
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, Math.max(0.5, screenR), 0, Math.PI * 2);
+      ctx.fillStyle = this.clr;
+      ctx.fill();
+      return;
+    }
+
+
+    if (this.velocity_v && !this.static) {
+      ctx.beginPath();
+      ctx.lineWidth = 2.5*1/scale
+      ctx.strokeStyle = "red"
+      ctx.moveTo(this.pos[0],this.pos[1])
+      ctx.lineTo(
+        this.pos[0]+this.vel[0]*10,
+        this.pos[1]+this.vel[1]*10
+      )
+      ctx.stroke();
+
+      // ImGui.text(
+      //   "V: " + Math.sqrt(this.vel[0]**2 + this.vel[1]**2).toFixed(2),
+      //   this.pos[0]+this.vel[0]*100,
+      //   this.pos[1]+this.vel[1]*100+this.rad/2
+      // )
+    }
+
+  }
+
+  // draws a small HUD near mouse showing info about the planet
+  drawHUD(ctx, mouseX, mouseY) {
+    const padding = 8;
+    const w = 200, h = 80;
+    const x = mouseX + 16, y = mouseY + 16;
+    ctx.save();
+    // background
+    ctx.fillStyle = 'rgba(10,12,14,0.88)';
+    roundRect(ctx, x, y, w, h, 6, true, false);
+    // small planet icon
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x + 28, y + 28, 18, 0, Math.PI * 2);
+    ctx.clip();
+    // draw a tiny version of the planet texture
+    if (this.texCanvas) ctx.drawImage(this.texCanvas, x + 10, y + 10, 36, 36);
+    ctx.restore();
+
+    // text
+    ctx.fillStyle = 'white';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(`Name: ${this.text || 'Unnamed'}`, x + 56, y + 22);
+    ctx.fillText(`Radius: ${Math.round(this.rad)}`, x + 56, y + 38);
+    ctx.fillText(`Mass: ${this.mass}`, x + 56, y + 54);
+    ctx.restore();
+  }
+
+  drawText() {
+    if (!this.static && scale < 0.0000001) return;
+
+    const {x, y} = worldToScreen(this.pos[0], this.pos[1])
+    const screenR = this.rad * scale;
+    
+    ImGui.text(
+      this.text,
+      ((x+screenR)),
+      ((y+screenR/2)),
+      "white"
+    )
+  }
+
+  drawPred() {
+    if (!this.static && scale < 0.0000001) return;
+
+    ctx.strokeStyle = "rgba(255,255,255,0.25)"
+    if (this.futureHist.length > 0) {
+      ctx.beginPath();
+      ctx.lineWidth = 2.5*1/scale;
+      
+      if (isLocked == true && balls[lockedBallIndex].futureHist.length > 0 && relative_trajectories.state) {
+        ctx.moveTo(
+          this.futureHist[0][0] - balls[lockedBallIndex].futureHist[0][0] + (balls[lockedBallIndex].pos[0]),
+          this.futureHist[0][1] - balls[lockedBallIndex].futureHist[0][1] + (balls[lockedBallIndex].pos[1])
+        )
+      } else {
+        ctx.moveTo(this.futureHist[0][0],this.futureHist[0][1])
+      }
+
+      // ctx.moveTo(this.futureHist[0][0],this.futureHist[0][1])
+
+      for (let i = 1; i < this.futureHist.length; i+=Math.max(1,parseInt(.0001/scale))) {
+
+        if (isLocked == true && balls[lockedBallIndex].futureHist.length > i && relative_trajectories.state) {
+          ctx.lineTo(
+            this.futureHist[i][0] - balls[lockedBallIndex].futureHist[i][0] + (balls[lockedBallIndex].pos[0]),
+            this.futureHist[i][1] - balls[lockedBallIndex].futureHist[i][1] + (balls[lockedBallIndex].pos[1])
+          )
+        } else {
+          ctx.lineTo(
+            this.futureHist[i][0],
+            this.futureHist[i][1]
+          )
+        }
+
+        // ctx.lineTo(
+        //   this.futureHist[i][0],
+        //   this.futureHist[i][1]
+        // )
+        
+      }
+      ctx.stroke()
+    }
+  }
+}
+
+let balls = [];
+
+const PI = Math.PI;
+const TWO_PI = Math.PI*2;
+
+function make_galaxy(radius, size, position, min=50, core_gravity = 100, core_vel=[0,0], static_=false, ball_r=2, center_r=6, center_clr="white", ball_clr="white", ball_mass=small_body_mass) {
+  const ball_1 = position;
+  for (var i = 0; i < size; i++) {
+    // from 0-2pi around circle, get normal vector, multiply by random distance.
+    const radian_angle = Math.random()*TWO_PI;
+    const angle = [
+      Math.cos(radian_angle),
+      Math.sin(radian_angle)
+    ]
+    // Get the random distancez
+    const circle_distance = Math.random()*radius+min
+    // Get vector offset
+    const offset = [
+      angle[0]*(circle_distance),
+      angle[1]*(circle_distance),
+    ]
+
+    // gravity = 100
+    // const v = Math.sqrt( central_gravity/100 * circle_distance ) / radius
+
+    // v = sqrt( (G * M * m) / r )
+
+    // v = sqrt ( G * Mass / Rad )
+    // const grav = Math.sqrt(g*core_gravity/(circle_distance+min))
+    const grav = Math.sqrt( (g*core_gravity)/(radius+min) )
+
+    balls.push(new ball(
+      offset[0]+ball_1[0],
+      offset[1]+ball_1[1],
+      false,
+      ball_mass,
+      // (Math.random()*(10**9))+10**7,
+      [
+        ((Math.sin(radian_angle)))*grav+core_vel[0],
+        (-(Math.cos(radian_angle)))*grav+core_vel[1],
+      ],
+      ball_r, //rad
+      // 1.1, //rad
+      ball_clr,
+      grav
+    ));
+  }
+  //                   x,           y ,   stat,   mass,          vel,    rad, clr
+  balls.push(new ball(ball_1[0],ball_1[1], static_, core_gravity, core_vel, center_r, center_clr));
+}
+
+function make_ball(radius, size, position, min=0, ball_gravity = 100, ball_vel=[0,0], static_=false, random_vel=false, skew=0) {
+  const ball_1 = position;
+  for (var i = 0; i < size; i++) {
+    const radian_angle = Math.random()*TWO_PI;
+    const angle = [
+      Math.cos(radian_angle),
+      Math.sin(radian_angle)
+    ]
+    let circle_distance = Math.random()
+    if (skew>0) {
+      circle_distance = Math.pow(circle_distance, skew) *radius
+      ball_gravity += (radius-circle_distance-min)**2
+    } else {
+      circle_distance *= radius
+    }
+    const offset = [
+      angle[0]*(circle_distance+min),
+      angle[1]*(circle_distance+min),
+    ]
+    // const grav = Math.sqrt(core_gravity/(circle_distance+min))/distance_factor**2
+    if (random_vel) {
+      ball_vel = [
+        (Math.sin(radian_angle))/(radius/circle_distance),
+        -(Math.cos(radian_angle))/(radius/circle_distance),
+      ]
+    }
+
+    balls.push(new ball(
+      offset[0]+ball_1[0],
+      offset[1]+ball_1[1],
+      static_,
+      ball_gravity,
+      [
+        ball_vel[0],
+        ball_vel[1],
+      ],
+      1.1,
+      `rgba(255,255,255, 0.5)`
+    ));
+  }
+  //                   x,           y ,   stat,   mass,          vel,    rad, clr
+  // balls.push(new ball(ball_1[0],ball_1[1], static, core_gravity, core_vel, 3, "white"));
+}
+
+const sun_mass = 1.989e30; // sun mass: 1.989e+30 kg 
+
+function spawn(min=100, r=5, clr="gray", ball_, mass=small_body_mass) { 
+  
+  // const min = 100
+  // const rad = Math.random()*100
+  const radian_angle = Math.random()*TWO_PI;
+  const angle = [
+    Math.cos(radian_angle),
+    Math.sin(radian_angle)
+  ]
+  // Get the random distancez
+  const circle_distance = min
+  // Get vector offset
+  const offset = [
+    angle[0]*(circle_distance),
+    angle[1]*(circle_distance),
+  ]
+  
+  // console.log(circle_distance)
+  
+  // debugger
+  let grav_ = 1;
+  if (ball_) {
+    grav_ = Math.sqrt( (g*ball_.mass)/(min) )
+    // console.log(ball_.mass,ball_.vel[0])
+  }
+  
+  return balls.push(new ball(
+    ball_ ? offset[0]+ball_.pos[0] : offset[0],
+    ball_ ? offset[1]+ball_.pos[1] : offset[1],
+    false,
+    mass,
+    // (Math.random()*(10**9))+10**7,
+    [
+      ball_ ? ((Math.sin(radian_angle)))*grav_+ball_.vel[0] : ((Math.sin(radian_angle))),
+      ball_ ? (-(Math.cos(radian_angle)))*grav_+ball_.vel[1] : (-(Math.cos(radian_angle)))
+    ],
+    r, //rad
+    clr,
+    ball_ ? grav_ : 0
+  ));
+  
+}
+
+// actually make the other planets via spawn function.
+// they have the original values but scaled down.
+
+const scale_modifer = 1;
+
+const camera = { cx: -530, cy: 0, zoom: 10, canvas: { width: c.width, height: c.height } };
+
+console.log("started processing stars")
+// streamStars('named_stars_10k.csv', camera, s => {
+streamStars('named_stars_gaia_dr3_100k.csv', camera, s => {
+
+  // simple brightness -> radius
+  // const rad = Math.max(0.5, 4 - ((s.mag || 10) - 5) * 0.3);
+
+  // ctx.globalAlpha = 1 - Math.min(0.9, Math.max(0, (s.d_pc / 1000)));
+  // ctx.arc(s.screenX, s.screenY, rad, 0, Math.PI*2);
+  
+  if (!s.screenX || !s.screenY) return;
+
+  const star = balls[balls.push(new ball(s.screenX * 10e15, s.screenY * 10e15, true, s.mass*sun_mass, [0,0], 695_508e3/10e3, "yellow"))-1];
+  star.text = s.name;
+
+  balls[spawn(57.91e6/scale_modifer, 2.44e3/scale_modifer, "gray", star, 3.285e23)-1].text = "Mercury";
+
+});
+
+
+// sun
+balls[balls.push(new ball(windowWidth/2, windowHeight/2, true, 1.989e30, [0,0], 695_508e3/10e3, "yellow"))-1].text = "Sun";
+
+
+// Mercury
+balls[spawn(57.91e6/scale_modifer, 2.44e3/scale_modifer, "gray", balls[0], 3.285e23)-1].text = "Mercury";
+
+// Venus
+// balls[spawn(108.2e6/scale_modifer, 6.052e3/scale_modifer, "orange", balls[0], 4.87e24)-1].text = "Venus";
+
+// // Earth
+// const earth = spawn(149.6e6/scale_modifer, 6.378e3/scale_modifer, "green", balls[0], 5.97e24);
+// balls[earth-1].text = "Earth";
+//   // Earth - Moon
+//   balls[spawn(384.4e3/scale_modifer, 1.737e3/scale_modifer, "grey", balls[earth-1], 7.35e22)-1].text = "Moon";
+
+// // Mars
+// const mars = spawn(227.9e6/scale_modifer, 3.397e3/scale_modifer, "red", balls[0], 6.42e23)
+// balls[mars-1].text = "Mars";
+//   // Mars - Phobos
+//   balls[spawn(9.378e3/scale_modifer, 11.1/scale_modifer, "gray", balls[mars-1], 1.065e16)-1].text = "Phobos";
+//   // Mars - Deimos
+//   balls[spawn(23.5e3/scale_modifer, 6.2/scale_modifer, "gray", balls[mars-1], 4.4e15)-1].text = "Deimos";
+
+// // Jupiter
+// const jupiter = spawn(778.3e6/scale_modifer, 71.492e3/scale_modifer, "brown", balls[0], (1.9e27))
+// balls[jupiter-1].text = "Jupiter";
+//   // Jupiter - Io
+//   balls[spawn(421.7e3/scale_modifer, 1.82e3/scale_modifer, "yellow", balls[jupiter-1], (8.93e22))-1].text = "Io";
+//   // Jupiter - Europa
+//   balls[spawn(670.9e3/scale_modifer, 1.56e3/scale_modifer, "white", balls[jupiter-1], 4.8e22)-1].text = "Europa";
+//   // Jupiter - Ganymede
+//   balls[spawn(1_070e3/scale_modifer, 2.63e3/scale_modifer, "gray", balls[jupiter-1], 1.4819e23)-1].text = "Ganymede";
+//   // Jupiter - Callisto
+//   balls[spawn(1_882e3/scale_modifer, 2.41e3/scale_modifer, "gray", balls[jupiter-1], 1.0759e23)-1].text = "Callisto";
+
+// // Saturn
+// balls[spawn(1_429e6/scale_modifer, 60.268e3/scale_modifer, "yellow", balls[0], 5.68e26)-1].text = "Saturn";
+
+// // Uranus
+// balls[spawn(2_871e6/scale_modifer, 25.559e3/scale_modifer, "cyan", balls[0], 8.68e25)-1].text = "Uranus";
+
+// Neptune
+// balls[spawn(4_498e6/scale_modifer, 24.764e3/scale_modifer, "lightblue", balls[0], 1.02e26)-1].text = "Neptune";
+
+function predictFunc() {
+  // Pause the simulation to allow orbit prediction
+
+  if (unsafe_toggle.state) {
+    pause = true;
+    pred_history.state = false;
+  }
+
+  // Set the number of steps for orbit prediction based on the slider value
+  predicted = predict_slide.state;
+
+  for (var i = 0; i < balls.length; i++) {
+    const ball = balls[i];
+    // Reset the balls future params for orbital prediction
+    ball.futurePos = ball.pos;
+    ball.futureVel = ball.vel;
+    ball.futureAcc = ball.acc;
+
+    ball.futureHist = [];
+  }
+
+  // Initiate the loop for orbit prediction using the steps in slider
+  let frame = 0
+  for (var s = 0; s < predict_slide.state; s++) {
+    for (var i = 0; i < balls.length; i++) {
+      const ball = balls[i];
+      ball.update(i, false, frame);
+    }
+    frame++;
+  }
+}
+
+// Button handlers
+predict.onClick(predictFunc)
+
+earth_spawn.onClick(() => {
+  spawn(((Math.random()*1_000_000)+50_357)/scale_modifer, 1, "gray", balls[lockedBallIndex], 9.3e20)
+})
+
+earth_spawn_nonCirc.onClick(() => {
+  const asteroid = spawn(((Math.random()*1_000_000)+50_357)/scale_modifer, 1, "gray", balls[lockedBallIndex], 9.3e20)
+  balls[asteroid-1].vel = mulVector(balls[asteroid-1].vel, [1,1])
+})
+
+moon_spawn.onClick(() => {
+  if (isLocked) {
+    // moon orbit rad: 384,400 km : 250
+    // moon radius 1,737.5 km : 5
+    // moon mass: 7.348e+22 kg : 0
+    const moon = spawn(384_400/scale_modifer, 1737.5/scale_modifer, "gray", balls[lockedBallIndex], 7.348e22)
+    balls[moon-1].text = `Moon #${moon}`
+  }
+})
+
+function worldToScreen(wx, wy) {
+  const c = { x: windowWidth / 2, y: windowHeight / 2 };
+  return {
+    x: (wx - originX) * scale + c.x,
+    y: (wy - originY) * scale + c.y
+  };
+}
+
+function recenterWorld(threshold = 1e5) {
+  if (Math.abs(originX) < threshold && Math.abs(originY) < threshold) return;
+  // shift everything so camera-origin becomes 0,0
+  for (let b of balls) {
+    b.pos[0] -= originX;
+    b.pos[1] -= originY;
+  }
+  originX = 0;
+  originY = 0;
+}
+
+// imgui.width = 350;
+function animate(t) {
+  // ctx.fillStyle = 'rgba(0,0,0,0.1)'
+	// ctx.fillRect(0, 0, windowWidth, windowHeight);
+  ctx.save();
+	ctx.clearRect(0, 0, windowWidth, windowHeight);
+  
+  // drawEquipotential();
+
+  const star = BallShared.starCanvas;
+  
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 0.20;
+  ctx.drawImage(star, 0, 0, ctx.canvas.width, ctx.canvas.height);
+  ctx.restore();
+
+  dt = dt_slider.state;
+
+  if (unsafe_toggle.state) {
+    pred_toggle.state = false;
+    predict_slide.max = 1_000_000;
+    // dt_slider.max = 100;
+  } else {
+    predict_slide.max = 10_000;
+    // dt_slider.max = 10;
+  }
+
+
+  if (isLocked && lockedBallIndex !== -1 && balls[lockedBallIndex]) {
+    // Ensure the locked ball is centered
+    const ball = balls[lockedBallIndex];
+    const centerX = c.width / 2;
+    const centerY = c.height / 2;
+
+    // Adjust origin to keep the ball centered
+    // originX = parseInt(centerX - (ball.pos[0] * scale) - (ball.vel[0] * dt * scale * !pause) );
+    originX = ball.pos[0];
+    // originY = parseInt(centerY - (ball.pos[1] * scale) - (ball.vel[1] * dt * scale * !pause) );
+    originY = ball.pos[1];
+  } else if (!balls[lockedBallIndex]) {
+    isLocked = false;
+    lockedBallIndex = -1;
+  }
+
+
+  // Instead of translating canvas, translate when drawing
+  // ctx.translate(originX, originY);
+  // ctx.scale(scale, scale);
+
+  if ((pred_toggle.state && frame_count % 10 == 0)) predictFunc()
+  
+  for (var i = 0; i < balls.length; i++) {
+    const ball = balls[i];
+    
+    ball.history_toggle = history.state
+    
+    if ((!pause && scale > 0.0000001) && (Math.abs(ball.pos[0]) < 1e12 && Math.abs(ball.pos[1]) < 1e12)) ball.update(i, true);
+
+    const sun = { pos: [ 0, 0 ] }; // normalized direction to your star (x,y,z)
+
+    const screen = worldToScreen(ball.pos[0], ball.pos[1]);
+    const screenR = ball.rad * scale;
+
+    ball.draw({ ctx, time: t * 0.1, sun, screenX: screen.x, screenY: screen.y, screenR });
+
+    if (predicted > 0 && pred_history.state) {
+      ball.drawPred();
+    }
+
+    ball.velocity_v = earth_v_checkbox.state
+    // ball.acc_v = earth_a_checkbox.state
+  }
+
+  recenterWorld();
+  
+  if (earth_a_checkbox.state) {
+    for (var i = 0; i < balls.length; i++) {
+      const ball = balls[i];
+      // if (scale <= 0.1) {
+        if (!ball.text) {
+          ImGui.text(
+            `Object #${i+1}`,
+            ((ball.pos[0]+ball.rad)*scale+originX),
+            ((ball.pos[1]+ball.rad/2)*scale+originY),
+            "18px sans-serif"
+          )
+        } else {
+          ball.drawText()
+        }
+        // }
+      }
+    }
+    
+  ctx.restore();
+  imgui.draw();
+
+  // tutorial.draw();
+  
+  frame_count++
+  if (frame_count >= 60) frame_count = 0
+
+  if (!pause) predicted--;
+
+  // Frame rate
+  // const tick = Date.now();
+
+  // fps.text = ("FPS: " + 
+  //   (
+  //     1/
+  //     (
+  //       (tick - lastTick)/1000
+  //     )
+  //   )
+  //   .toString().split('.')[0]) 
+  
+  // lastTick = tick;
+
+  window.requestAnimationFrame(animate);
+}
+
+let mouse = false;
+let mx = 0;
+let my = 0;
+let isLocked = true;
+let lockedBallIndex = 0;
+
+c.addEventListener('mousedown', (e) => {
+  if ((!imgui.checkBounding(e.x, e.y) && !(false && tutorial.checkBounding(e.x, e.y))) && e.button == 0) {
+    // console.log(tutorial.checkBounding(e.x, e.y))
+    mouse = true;
+    mx = e.x;
+    my = e.y;
+    // c.style.cursor = 'grabbing'; // Change cursor to indicate panning
+  } else if (e.button == 2) {
+    // lock on to the ball at this location
+    const mouseX = (e.clientX - c.getBoundingClientRect().left - originX) / scale;
+    const mouseY = (e.clientY - c.getBoundingClientRect().top - originY) / scale;
+
+    for (let i = 0; i < balls.length; i++) {
+      const ball = balls[i];
+      const distance = Math.sqrt(
+        (mouseX - ball.pos[0]) ** 2 + (mouseY - ball.pos[1]) ** 2
+      );
+
+      if (distance <= ball.rad) {
+        isLocked = true;
+        lockedBallIndex = i; // Lock onto this ball
+        break;
+      } else {
+        isLocked = false;
+        lockedBallIndex = -1;
+      }
+    }
+  }
+})
+
+c.addEventListener("mousemove", (e) => {
+  if (mouse) {
+    c.style.cursor = 'grabbing'; // Change cursor to indicate panning
+    const deltaX = e.x - mx;
+    const deltaY = e.y - my;
+    
+    // Update the origin based on mouse movement
+    // originX += deltaX;
+    originX -= deltaX / scale;
+    // originY += deltaY;
+    originY -= deltaY / scale;
+
+    // Update the last mouse position
+    mx = e.x;
+    my = e.y;
+
+    isLocked = false;
+    lockedBallIndex = -1;
+  }
+});
+
+c.addEventListener("mouseup", () => {
+  mouse = false;
+  c.style.cursor = 'default'; // Revert cursor back
+});
+
+// Handle mouse leave to stop panning when the cursor leaves canvas
+c.addEventListener("mouseleave", () => {
+  mouse = false;
+  c.style.cursor = 'default';
+});
+
+// document.addEventListener("wheel", (e) => {
+//   // on scroll, change the scroll variable
+//   e.preventDefault();
+//   const zoomFactor = 1.1; // Zoom speed
+//   const delta = Math.sign(e.deltaY); // Detect scroll direction (up or down)
+
+//   // Mouse position relative to canvas
+//   const rect = c.getBoundingClientRect();
+//   const mouseX = e.clientX - rect.left;
+//   const mouseY = e.clientY - rect.top;
+
+//   // Adjust scale
+//   const newScale = Math.min(
+//       (delta < 0 ? scale * zoomFactor : scale / zoomFactor), 1_000_000);
+
+  
+
+//   // Adjust origin to zoom towards mouse position
+//   originX = mouseX - (mouseX - originX) * (newScale / scale);
+//   originY = mouseY - (mouseY - originY) * (newScale / scale);
+
+//   scale = newScale;
+
+//   console.log(scale, originX, originY)
+
+// })
+
+function screenToWorld(sx, sy) {
+  const c = { x: windowWidth / 2, y: windowHeight / 2 };
+  return {
+    x: originX + (sx - c.x) / scale,
+    y: originY + (sy - c.y) / scale
+  };
+}
+
+// ====== ZOOM (wheel) - zoom to mouse ======
+document.addEventListener('wheel', (e) => {
+  e.preventDefault();
+
+  const rect = c.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+
+  // Get world point under mouse before zoom
+  const before = screenToWorld(mouseX, mouseY);
+
+  // Exponential zoom for smoothness
+  const ZOOM_BASE = 1.08;
+  const zoomFactor = e.deltaY > 0 ? 1 / ZOOM_BASE : ZOOM_BASE;
+  let newScale = scale * zoomFactor;
+  newScale = newScale;
+  scale = newScale;
+
+  // World point under mouse after zoom
+  const after = screenToWorld(mouseX, mouseY);
+
+  // Shift camera so mouse points to same world coordinate
+  originX += before.x - after.x;
+  originY += before.y - after.y;
+}, { passive: false });
+
+document.addEventListener("keydown", (e) => {
+  // 32 == SPACE
+  if (e.keyCode == 32 && !pause) {
+    pause = true;
+  } else if (e.keyCode == 32 && pause) {
+    pause = false;
+  }
+
+  // Scroll quick
+  // Arrow down (scroll out)
+
+  const rect = c.getBoundingClientRect();
+  const mouseX = windowWidth/2;
+  const mouseY = windowHeight/2;
+
+  if (e.keyCode == 40) {
+    // scale /= 2;
+    
+    const newScale = Math.min(
+      (scale / 2), 1_000_000);
+
+    originX = mouseX - (mouseX - originX) * (newScale / scale);
+    originY = mouseY - (mouseY - originY) * (newScale / scale);
+
+    scale = newScale;
+
+  } else if (e.keyCode == 38) {
+    // scale *= 2;
+    
+    const newScale = Math.min(
+      (scale * 2), 1_000_000);
+    
+    originX = mouseX - (mouseX - originX) * (newScale / scale);
+    originY = mouseY - (mouseY - originY) * (newScale / scale);
+
+    scale = newScale;
+  }
+
+  console.log(scale, originX, originY)
+
+  if (parseInt(e.key)) {
+    isLocked = true;
+    lockedBallIndex = parseInt(e.key)-1; // Lock onto this ball
+  }
+
+  // left arrow 37, slowdown sim; right 39, speedup sim;
+  // if (e.keyCode == 37) {
+  //   dt -= 10;
+  // }
+  // if (e.keyCode == 39) {
+  //   dt += 10;
+  // }
+
+  // if (dt < 0) dt = 0
+})
+
+
+function resizeCanvas() {
+  const canvas = document.getElementById('myCanvas');
+  if (canvas) {
+    canvas.width = window.innerWidth;
+    windowWidth = window.innerWidth;
+    canvas.height = window.innerHeight;
+    windowHeight = window.innerHeight;
+    
+  }
+}
+
+window.addEventListener('resize', resizeCanvas);
+
+// Implement touch at somepoint
+// c.addEventListener("pointerdown", (e) => {
+//   console.log(e)
+// })
+
+function drawEquipotentialGradient() {
+
+  const step = 3;
+
+  const contourSpacing = 1e9; // adjust this (smaller = denser lines)
+  const contourFrequency = 2.0; // how many waves per potential decade
+  const brightness = 0.7; // overall brightness
+
+  // create image buffer once per frame
+  const imgData = ctx.createImageData(windowWidth, windowHeight);
+  const data = imgData.data;
+
+  // helper to write a pixel into the image buffer
+  function writePixel(px, py, r, g, b, a = 255) {
+    if (px < 0 || py < 0 || px >= windowWidth || py >= windowHeight) return;
+    const i = (py * windowWidth + px) * 4;
+    data[i] = r;
+    data[i + 1] = g;
+    data[i + 2] = b;
+    data[i + 3] = a;
+  }
+
+  for (let y = 0; y <= windowHeight; y+=step) {
+    for (let x = 0; x <= windowWidth; x+=step) {
+      
+      // convert screen coords → world coords
+      const worldX = (x - originX) / scale;
+      const worldY = (y - originY) / scale;
+
+      let potential = 0
+      for (var i = 0; i < balls.length; i++) {
+        const ball = balls[i];
+        
+        const dx = worldX - ball.pos[0];
+        const dy = worldY - ball.pos[1];
+        potential += -g * ball.mass / Math.sqrt(dx*dx + dy*dy + 1)
+      }
+
+      // normalize and draw when potential crosses multiples of contourSpacing
+      // const mod = Math.abs(potential % contourSpacing);
+      // if (mod < contourSpacing * 0.02) { // 2% band thickness
+      //   ctx.fillStyle = "rgba(255, 255, 100, 0.7)";
+      //   ctx.fillRect(x, y, 1, 1);
+      // }
+
+      // produce a smooth shade from potential (stable-ish to pan/zoom)
+      // const v = Math.log10(Math.abs(potential) + 1);
+      const v = Math.log1p(Math.abs(potential)) * Math.sign(potential);
+      let shade = Math.sin(v * contourFrequency) * 0.5 + 0.5;
+      shade = Math.pow(shade, 1.2); // curve for nicer contrast
+      const r = Math.max(0, Math.min(255, Math.floor(shade * 255 * brightness)));
+      const green = Math.max(0, Math.min(255, Math.floor((shade * 255 * brightness) + 40)));
+      const b = 150;
+
+      // fill a step x step block in the image buffer (clamped to canvas)
+      const maxDy = Math.min(step, windowHeight - y);
+      const maxDx = Math.min(step, windowWidth - x);
+      for (let dy = 0; dy < maxDy; dy++) {
+        for (let dx = 0; dx < maxDx; dx++) {
+          writePixel(x + dx, y + dy, r, green, b, 255);
+        }
+      }
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+}
+
+function drawEquipotential() {
+  const step = 3;              // pixel sampling
+  const contourSpacing = 1; // distance between lines (in potential space)
+  const contourSharpness = 1e-20; // thickness of each line
+  const potentialScale = 1e-6;
+
+  const w = windowWidth;
+  const h = windowHeight;
+  const imgData = ctx.createImageData(w, h);
+  const data = imgData.data;
+
+  // Adjust contour scaling based on zoom — this is the key
+  const zoomCompensation = scale; // thinner when zoomed in
+
+  let idx = 0;
+  for (let y = 0; y < h; y += step) {
+    for (let x = 0; x < w; x += step) {
+      const wx = (x - originX) / scale;
+      const wy = (y - originY) / scale;
+
+      // Sum potentials
+      let potential = 0;
+      for (const ball of balls) {
+        const dx = wx - ball.pos[0];
+        const dy = wy - ball.pos[1];
+        potential += -ball.mass / Math.sqrt(dx * dx + dy * dy + 1);
+      }
+
+      // Warp potential space (log compression)
+      const warped = Math.log10(Math.abs(potential) * potentialScale + 1);
+
+      // Adjust wave frequency by zoom to keep lines visually consistent
+      const wave = Math.sin(warped / (contourSpacing / zoomCompensation));
+      const line = Math.exp(-Math.pow(wave / (contourSharpness / zoomCompensation), 2));
+
+      const brightness = line * 255;
+      const r = 255;
+      const g = 255;
+      const b = brightness * 0.5;
+      const a = brightness;
+
+      for (let sy = 0; sy < step; sy++) {
+        for (let sx = 0; sx < step; sx++) {
+          const px = (x + sx);
+          const py = (y + sy);
+          if (px >= w || py >= h) continue;
+          const i = (py * w + px) * 4;
+          data[i] = r;
+          data[i + 1] = g;
+          data[i + 2] = b;
+          data[i + 3] = a;
+        }
+      }
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+}
+
+
+window.requestAnimationFrame(animate);
+
+</script>
+</body></html>
