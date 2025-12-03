@@ -1043,11 +1043,17 @@ class ball {
 
     if (screenX !== undefined && screenY !== undefined && screenR !== undefined) {
 
-      ctx.shadowBlur = 50;
-      ctx.shadowColor = this.clr;
+      if (scale > 0.0001){
+        ctx.shadowBlur = 50;
+        ctx.shadowColor = this.clr;
+      }
 
       ctx.beginPath();
-      ctx.arc(screenX, screenY, Math.max(Math.min(3, this.mass/sun_mass), screenR), 0, Math.PI * 2);
+      if (this.static) {
+        ctx.arc(screenX, screenY, Math.max(Math.min(3, this.mass/sun_mass), screenR), 0, Math.PI * 2);
+      } else {
+        ctx.arc(screenX, screenY, Math.max(0.5, screenR), 0, Math.PI * 2);
+      }
       ctx.fillStyle = this.clr;
       ctx.fill();
 
@@ -1110,12 +1116,21 @@ class ball {
     const {x, y} = worldToScreen(this.pos[0], this.pos[1])
     const screenR = this.rad * scale;
     
-    ImGui.text(
-      this.text,
-      ((x+screenR)),
-      ((y+screenR/2)),
-      `rgba(255,255,255,${(scale<=1e-14) ? Math.max(0, (4.5e-15-scale)/(5.5e-17-4.5e-15)) : 1})`
-    )
+    if (this.static) {
+      ImGui.text(
+        this.text,
+        ((x+screenR)),
+        ((y+screenR/2)),
+        `rgba(255,255,255,${(scale<=1e-14) ? Math.max(0, (4.5e-15-scale)/(5.5e-17-4.5e-15)) : 1})`
+      )
+    } else {
+      ImGui.text(
+        this.text,
+        ((x+screenR)),
+        ((y+screenR/2)),
+        `rgba(255,255,255,${(scale<=1e-6) ? Math.max(0, (1e-7-scale)/(1e-8-1e-6)) : 1})`
+      )
+    }
   }
 
   drawPred() {
@@ -1337,42 +1352,42 @@ balls[balls.push(new ball(windowWidth/2, windowHeight/2, true, 1.989e30, [0,0], 
 balls[spawn(57.91e6/scale_modifer, 2.44e3/scale_modifer, "gray", balls[0], 3.285e23)-1].text = "Mercury";
 
 // Venus
-// balls[spawn(108.2e6/scale_modifer, 6.052e3/scale_modifer, "orange", balls[0], 4.87e24)-1].text = "Venus";
+balls[spawn(108.2e6/scale_modifer, 6.052e3/scale_modifer, "orange", balls[0], 4.87e24)-1].text = "Venus";
 
-// // Earth
-// const earth = spawn(149.6e6/scale_modifer, 6.378e3/scale_modifer, "green", balls[0], 5.97e24);
-// balls[earth-1].text = "Earth";
-//   // Earth - Moon
-//   balls[spawn(384.4e3/scale_modifer, 1.737e3/scale_modifer, "grey", balls[earth-1], 7.35e22)-1].text = "Moon";
+// Earth
+const earth = spawn(149.6e6/scale_modifer, 6.378e3/scale_modifer, "green", balls[0], 5.97e24);
+balls[earth-1].text = "Earth";
+  // Earth - Moon
+  balls[spawn(384.4e3/scale_modifer, 1.737e3/scale_modifer, "grey", balls[earth-1], 7.35e22)-1].text = "Moon";
 
-// // Mars
-// const mars = spawn(227.9e6/scale_modifer, 3.397e3/scale_modifer, "red", balls[0], 6.42e23)
-// balls[mars-1].text = "Mars";
-//   // Mars - Phobos
-//   balls[spawn(9.378e3/scale_modifer, 11.1/scale_modifer, "gray", balls[mars-1], 1.065e16)-1].text = "Phobos";
-//   // Mars - Deimos
-//   balls[spawn(23.5e3/scale_modifer, 6.2/scale_modifer, "gray", balls[mars-1], 4.4e15)-1].text = "Deimos";
+// Mars
+const mars = spawn(227.9e6/scale_modifer, 3.397e3/scale_modifer, "red", balls[0], 6.42e23)
+balls[mars-1].text = "Mars";
+  // Mars - Phobos
+  balls[spawn(9.378e3/scale_modifer, 11.1/scale_modifer, "gray", balls[mars-1], 1.065e16)-1].text = "Phobos";
+  // Mars - Deimos
+  balls[spawn(23.5e3/scale_modifer, 6.2/scale_modifer, "gray", balls[mars-1], 4.4e15)-1].text = "Deimos";
 
-// // Jupiter
-// const jupiter = spawn(778.3e6/scale_modifer, 71.492e3/scale_modifer, "brown", balls[0], (1.9e27))
-// balls[jupiter-1].text = "Jupiter";
-//   // Jupiter - Io
-//   balls[spawn(421.7e3/scale_modifer, 1.82e3/scale_modifer, "yellow", balls[jupiter-1], (8.93e22))-1].text = "Io";
-//   // Jupiter - Europa
-//   balls[spawn(670.9e3/scale_modifer, 1.56e3/scale_modifer, "white", balls[jupiter-1], 4.8e22)-1].text = "Europa";
-//   // Jupiter - Ganymede
-//   balls[spawn(1_070e3/scale_modifer, 2.63e3/scale_modifer, "gray", balls[jupiter-1], 1.4819e23)-1].text = "Ganymede";
-//   // Jupiter - Callisto
-//   balls[spawn(1_882e3/scale_modifer, 2.41e3/scale_modifer, "gray", balls[jupiter-1], 1.0759e23)-1].text = "Callisto";
+// Jupiter
+const jupiter = spawn(778.3e6/scale_modifer, 71.492e3/scale_modifer, "brown", balls[0], (1.9e27))
+balls[jupiter-1].text = "Jupiter";
+  // Jupiter - Io
+  balls[spawn(421.7e3/scale_modifer, 1.82e3/scale_modifer, "yellow", balls[jupiter-1], (8.93e22))-1].text = "Io";
+  // Jupiter - Europa
+  balls[spawn(670.9e3/scale_modifer, 1.56e3/scale_modifer, "white", balls[jupiter-1], 4.8e22)-1].text = "Europa";
+  // Jupiter - Ganymede
+  balls[spawn(1_070e3/scale_modifer, 2.63e3/scale_modifer, "gray", balls[jupiter-1], 1.4819e23)-1].text = "Ganymede";
+  // Jupiter - Callisto
+  balls[spawn(1_882e3/scale_modifer, 2.41e3/scale_modifer, "gray", balls[jupiter-1], 1.0759e23)-1].text = "Callisto";
 
-// // Saturn
-// balls[spawn(1_429e6/scale_modifer, 60.268e3/scale_modifer, "yellow", balls[0], 5.68e26)-1].text = "Saturn";
+// Saturn
+balls[spawn(1_429e6/scale_modifer, 60.268e3/scale_modifer, "yellow", balls[0], 5.68e26)-1].text = "Saturn";
 
-// // Uranus
-// balls[spawn(2_871e6/scale_modifer, 25.559e3/scale_modifer, "cyan", balls[0], 8.68e25)-1].text = "Uranus";
+// Uranus
+balls[spawn(2_871e6/scale_modifer, 25.559e3/scale_modifer, "cyan", balls[0], 8.68e25)-1].text = "Uranus";
 
 // Neptune
-// balls[spawn(4_498e6/scale_modifer, 24.764e3/scale_modifer, "lightblue", balls[0], 1.02e26)-1].text = "Neptune";
+balls[spawn(4_498e6/scale_modifer, 24.764e3/scale_modifer, "lightblue", balls[0], 1.02e26)-1].text = "Neptune";
 
 function predictFunc() {
   // Pause the simulation to allow orbit prediction
