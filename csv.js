@@ -138,7 +138,6 @@ async function streamStars(url, camera, onStar) {
             if (!line.trim()) continue;
 
             i++;
-            console.log(i)
 
             // Skip header row
             if (isFirstLine) {
