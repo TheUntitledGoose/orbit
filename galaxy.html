@@ -42,7 +42,7 @@ tutorial.title = "TUTORIAL";
 tutorial.staticText("PC Only! Mobile is hard", undefined, true)
 tutorial.staticText("-------CONTROLS-------", "gold", true)
 tutorial.staticText("Left Click to move around", undefined, true)
-tutorial.staticText("Right click on body to lock on.\nIf locked on, right click away to unlock.", undefined, true)
+tutorial.staticText("Right click lock on a body in the center\nof your screen.\nIf locked on, right click away to unlock.", undefined, true)
 tutorial.staticText("Scroll wheel to zoom in and out\n(This is a very large map, real-life scaled)", undefined, true)
 tutorial.staticText("Space to pause time.", undefined, true)
 tutorial.staticText("Keys 1-9 to switch between bodies", undefined, true)
@@ -50,12 +50,10 @@ tutorial.staticText("Up Arrow Key to scroll in.\nDown Arrow Key to scroll out.",
 tutorial.staticText("-------GENERAL--------", "gold", true)
 tutorial.staticText("It's slightly broken right now\nSpawning doesn't work right now.", undefined, true)
 tutorial.staticText("For real-life time scaling,\nuse this speedup time:\n0.000023148", undefined, true)
-tutorial.button("Real-life time scaling", true).onClick(() => {
-  dt = 0.000023148
-})
+const real_life_scaling = tutorial.button("Real-life time scaling", true)
 
 
-// tutorial.init();
+tutorial.init();
 
 // /TUTORIAL //
 
@@ -73,11 +71,36 @@ let earth_a_checkbox = imgui.checkbox("Show Labels", true);
 
 let relative_trajectories = imgui.checkbox("Draw Relative Trajectories", true);
 
-imgui.staticText("")
-imgui.staticText("Spawn (Lock onto body first)")
-let earth_spawn = imgui.button("Spawn Asteroid");
-let earth_spawn_nonCirc = imgui.button("Spawn Asteroid: Non-Circular Orbit");
-let moon_spawn = imgui.button("Spawn Moon");
+// imgui.staticText("")
+// imgui.staticText("Spawn (Lock onto body first)")
+// let earth_spawn = imgui.button("Spawn Asteroid");
+// let earth_spawn_nonCirc = imgui.button("Spawn Asteroid: Non-Circular Orbit");
+// let moon_spawn = imgui.button("Spawn Moon");
+
+// earth_spawn.onClick(() => {
+//   spawn(((Math.random()*1_000_000)+50_357)/scale_modifer, 1, "gray", balls[lockedBallIndex], 9.3e20)
+// })
+
+// earth_spawn_nonCirc.onClick(() => {
+//   const asteroid = spawn(((Math.random()*1_000_000)+50_357)/scale_modifer, 1, "gray", balls[lockedBallIndex], 9.3e20)
+//   balls[asteroid-1].vel = mulVector(balls[asteroid-1].vel, [1,1])
+// })
+
+// moon_spawn.onClick(() => {
+//   if (isLocked) {
+//     // moon orbit rad: 384,400 km : 250
+//     // moon radius 1,737.5 km : 5
+//     // moon mass: 7.348e+22 kg : 0
+//     const moon = spawn(384_400/scale_modifer, 1737.5/scale_modifer, "gray", balls[lockedBallIndex], 7.348e22)
+//     balls[moon-1].text = `Moon #${moon}`
+//   }
+// })
+
+real_life_scaling.onClick(() => {
+  dt_slider.state = 0.000023148;
+  dt_slider.refresh();
+})
+
 
 imgui.staticText("")
 imgui.staticText("N-Body Prediction")
@@ -919,12 +942,12 @@ class ball {
     // if (this._dirtyRings) this._generateRings();
 
     // draw the planet: base texture
-    ctx.save();
+    // ctx.save();
     // ctx.translate(this.pos[0]+this.vel[0], this.pos[1]+this.vel[1]);
 
     // screen scale allowance
-    const drawR = this.rad;
-    const size = this.texCanvas?.width || 1024;
+    // const drawR = this.rad;
+    // const size = this.texCanvas?.width || 1024;
 
     // base terrain (baked)
     // ctx.save();
@@ -1005,7 +1028,7 @@ class ball {
     // ctx.arc(0, 0, drawR, 0, Math.PI * 2);
     // ctx.stroke();
 
-    ctx.restore(); // restore to world transform
+    // ctx.restore(); // restore to world transform
 
 
 
@@ -1048,8 +1071,8 @@ class ball {
     // ctx.fillStyle = this.clr;
     // ctx.fill();
 
-    if (!this.static && Math.abs(this.pos[0]-originX) <= 1e5 && Math.abs(this.pos[1]-originY) <= 1e5) this.drawHUD()
-    else if (this.static && Math.abs(this.pos[0]-originX) <= 1e15 && Math.abs(this.pos[1]-originY) <= 1e15) this.drawHUD()
+    if (!this.static && Math.abs(this.pos[0]-originX) <= 1e5 && Math.abs(this.pos[1]-originY) <= 1e5) {this.drawHUD()}
+    else if (this.static && Math.abs(this.pos[0]-originX) <= 1e15 && Math.abs(this.pos[1]-originY) <= 1e15) {this.drawHUD()}
 
     if (screenX !== undefined && screenY !== undefined && screenR !== undefined) {
 
@@ -1134,6 +1157,8 @@ class ball {
 
   drawText() {
     if (!this.static && scale < 0.0000001) return;
+    // if far
+    if (Math.abs(this.pos[0]-originX) >= 1e19 || Math.abs(this.pos[1]-originY) >= 1e19) return
 
     const {x, y} = worldToScreen(this.pos[0], this.pos[1])
     const screenR = this.rad * scale;
@@ -1446,25 +1471,6 @@ function predictFunc() {
 // Button handlers
 predict.onClick(predictFunc)
 
-earth_spawn.onClick(() => {
-  spawn(((Math.random()*1_000_000)+50_357)/scale_modifer, 1, "gray", balls[lockedBallIndex], 9.3e20)
-})
-
-earth_spawn_nonCirc.onClick(() => {
-  const asteroid = spawn(((Math.random()*1_000_000)+50_357)/scale_modifer, 1, "gray", balls[lockedBallIndex], 9.3e20)
-  balls[asteroid-1].vel = mulVector(balls[asteroid-1].vel, [1,1])
-})
-
-moon_spawn.onClick(() => {
-  if (isLocked) {
-    // moon orbit rad: 384,400 km : 250
-    // moon radius 1,737.5 km : 5
-    // moon mass: 7.348e+22 kg : 0
-    const moon = spawn(384_400/scale_modifer, 1737.5/scale_modifer, "gray", balls[lockedBallIndex], 7.348e22)
-    balls[moon-1].text = `Moon #${moon}`
-  }
-})
-
 function worldToScreen(wx, wy) {
   const c = { x: windowWidth / 2, y: windowHeight / 2 };
   return {
@@ -1579,9 +1585,6 @@ function animate(t) {
     }
     
   ctx.restore();
-  imgui.draw();
-
-  // tutorial.draw();
   
   frame_count++
   if (frame_count >= 60) frame_count = 0
@@ -1629,6 +1632,10 @@ function animate(t) {
   
   // lastTick = tick;
 
+  imgui.draw();
+
+  tutorial.draw();
+
   window.requestAnimationFrame(animate);
 }
 
@@ -1639,7 +1646,7 @@ let isLocked = true;
 let lockedBallIndex = 0;
 
 c.addEventListener('mousedown', (e) => {
-  if ((!imgui.checkBounding(e.x, e.y) && !(false && tutorial.checkBounding(e.x, e.y))) && e.button == 0) {
+  if ((!imgui.checkBounding(e.x, e.y) && !(tutorial.checkBounding(e.x, e.y))) && e.button == 0) {
     // console.log(tutorial.checkBounding(e.x, e.y))
     mouse = true;
     mx = e.x;
@@ -1650,21 +1657,30 @@ c.addEventListener('mousedown', (e) => {
     const mouseX = (e.clientX - c.getBoundingClientRect().left - originX) / scale;
     const mouseY = (e.clientY - c.getBoundingClientRect().top - originY) / scale;
 
+    let lowestDist = {d:Infinity};
+
     for (let i = 0; i < balls.length; i++) {
       const ball = balls[i];
       const distance = Math.sqrt(
-        (mouseX - ball.pos[0]) ** 2 + (mouseY - ball.pos[1]) ** 2
+        (originX - ball.pos[0]) ** 2 + (originY - ball.pos[1]) ** 2
       );
 
-      if (distance <= ball.rad) {
-        isLocked = true;
-        lockedBallIndex = i; // Lock onto this ball
-        break;
-      } else {
-        isLocked = false;
-        lockedBallIndex = -1;
+      if (distance < lowestDist.d) {
+        lowestDist.d = distance;
+        lowestDist.b = i;
       }
+
     }
+
+    if (lowestDist.d != Infinity) {
+      isLocked = true;
+      lockedBallIndex = lowestDist.b; // Lock onto this ball
+    } else {
+      isLocked = false;
+      lockedBallIndex = -1;
+    }
+
+    
   }
 })
 
