@@ -1390,6 +1390,40 @@ streamStars('named_stars_gaia_dr3_100k.csv', camera, s => {
 
 });
 
+async function loadStars() {
+    // 1. Fetch the file
+    const response = await fetch('hyg_v42.csv');
+    const csvText = await response.text();
+
+    // 2. Define "rows" by splitting the text at every new line
+    const rows = csvText.split('\n');
+
+    // 3. Map and Filter (starting at index 1 to skip the header)
+    const starList = rows.slice(1).map(row => {
+        const columns = row.split(',');
+        if (columns.length < 20) return null;
+
+        // Helper to strip quotes and extra spaces
+        const clean = (val) => val ? val.replace(/"/g, '').trim() : "";
+
+        const bf = clean(columns[5]);     // Column F
+        const proper = clean(columns[6]); // Column G
+
+        // If either column is NOT empty
+        if (bf !== "" || proper !== "") {
+            return {
+                name: proper || bf,
+                x: parseFloat(columns[17]), // X coordinate
+                y: parseFloat(columns[18]), // Y coordinate
+                mag: parseFloat(columns[13]) // Magnitude for brightness
+            };
+        }
+        return null;
+    }).filter(star => star !== null); // Remove the empty/unnamed ones
+
+    console.log(starList);
+    return starList;
+}
 
 // sun
 balls[balls.push(new ball(windowWidth/2, windowHeight/2, true, 1.989e30, [0,0], 695_508, "yellow"))-1].text = "Sun";
