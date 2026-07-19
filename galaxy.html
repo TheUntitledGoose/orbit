@@ -374,24 +374,15 @@ let dt = 1;
 function calcAcc(ball_, int, apply = true) {
   for (var j = int+1; j < balls.length; j++) {
     const baller = balls[j];
-    // if (baller.check()) continue;
-    let diff = apply ? subVec(baller.pos, ball_.pos) : subVec(baller.futurePos, ball_.futurePos);
+    // Skip bodies that only gravitate toward a single target (asteroids)
+    if (baller.gravIdx >= 0) continue;
+    const dx = apply ? baller.pos[0] - ball_.pos[0] : baller.futurePos[0] - ball_.futurePos[0];
+    const dy = apply ? baller.pos[1] - ball_.pos[1] : baller.futurePos[1] - ball_.futurePos[1];
 
-    let dist = diff[0]**2 + diff[1]**2
+    let dist = dx * dx + dy * dy
 
     if (dist <= ball_.rad*ball_.rad + baller.rad*baller.rad && apply) {
 
-      // dist = Math.sqrt( (diff[0]**2 + diff[1]**2)  );
-
-      // if (ball_.rad < baller.rad) {
-      //   balls.splice(int, 1);
-      // } else {
-      //   balls.splice(j, 1);
-      // }
-
-      // instead of deleting ^
-      // set ball to static, and rad to 0, so that the trail disappears slowly
-      // check whicher is smaller
       if (ball_.rad < baller.rad) {
         ball_.static = true;
         ball_.mass = 0;
@@ -406,83 +397,53 @@ function calcAcc(ball_, int, apply = true) {
         baller.rad = 0;
       }
 
-
-      // dist, diff = ball.applyCollisions(ball_, baller, dist);
-      // diff = subVec(baller.pos, ball_.pos);
+      dist = Math.sqrt( dist );
     } else {
       dist = Math.sqrt( dist );
     }
     
-    // get normalized vector
-    // hypotanous / hyp = 1
-    // side / hyp = normalized
-    
     const inv_distance = 1/Math.max(dist,0);
-    
-    const normalized_x = diff[0] * inv_distance;
-    const normalized_y = diff[1] * inv_distance;
-    
-    // apply inverse square law to gravity
+
+    const normalized_x = dx * inv_distance;
+    const normalized_y = dy * inv_distance;
     
     const inverse_square_dropoff = inv_distance * inv_distance
     
-    // F = g * ( m_1 * m_2 ) / r^2
-    // const g = 6.637*(10**-11)
     let x_1acc = 0;
     let y_1acc = 0;
-
     let x_2acc = 0;
     let y_2acc = 0;
     
     if (!ball_.static) {
-      // Instead of setting acc, and vel, return the values so..
-      // That they could be could be added outside the calculation func.
-
       x_1acc = normalized_x * g * (baller.mass * inverse_square_dropoff);
       y_1acc = normalized_y * g * (baller.mass * inverse_square_dropoff);
 
       if (apply) {
-        ball_.acc = [x_1acc, y_1acc];
+        if (ball_.acc) { ball_.acc[0] = x_1acc; ball_.acc[1] = y_1acc; }
+        ball_.vel[0] += x_1acc * dt;
+        ball_.vel[1] += y_1acc * dt;
       } else {
-        ball_.futureAcc = [x_1acc, y_1acc];
-      }
-
-      // ball_.acc[0] *= dt
-      // ball_.acc[1] *= dt
-
-
-      if (apply) {
-        ball_.vel = addVec(mulVector(ball_.acc, [dt,dt]), ball_.vel);
-      } else {
-        ball_.futureVel = addVec(ball_.futureAcc, ball_.futureVel);
+        if (ball_.futureAcc) { ball_.futureAcc[0] = x_1acc; ball_.futureAcc[1] = y_1acc; }
+        ball_.futureVel[0] += x_1acc;
+        ball_.futureVel[1] += y_1acc;
       }
     }
 
     if (!baller.static) {
-      // Instead of setting acc, and vel, return the values so..
-      // That they could be could be added outside the calculation func.
       x_2acc = -normalized_x * g * (ball_.mass * inverse_square_dropoff);
       y_2acc = -normalized_y * g * (ball_.mass * inverse_square_dropoff);
 
       if (apply) {
-        baller.acc = [x_2acc, y_2acc];
+        if (baller.acc) { baller.acc[0] = x_2acc; baller.acc[1] = y_2acc; }
+        baller.vel[0] += x_2acc * dt;
+        baller.vel[1] += y_2acc * dt;
       } else {
-        baller.futureAcc = [x_2acc, y_2acc];
+        if (baller.futureAcc) { baller.futureAcc[0] = x_2acc; baller.futureAcc[1] = y_2acc; }
+        baller.futureVel[0] += x_2acc;
+        baller.futureVel[1] += y_2acc;
       }
-
-      // baller.acc[0] *= dt
-      // baller.acc[1] *= dt
-
-      if (apply) {
-        baller.vel = addVec(mulVector(baller.acc, [dt,dt]), baller.vel);
-      } else {
-        baller.futureVel = addVec(baller.futureAcc, baller.futureVel);
-      }
-      
     }
   }
-  // If last body, return undefined for all values, since it crashes otherwise
-  // return [undefined,undefined,undefined,undefined]
 }
 
 class ball {
@@ -500,13 +461,14 @@ class ball {
     
     this.mass = mass;
     this.static = static_;
+    this.gravIdx = -1; // -1 = full n-body, >=0 = only gravitate toward balls[gravIdx]
 
     this.pos = [x, y];
     this.vel = vel;
     this.acc = [0, 0];
 
     this.futurePos = [x, y];
-    this.futureVel = vel;
+    this.futureVel = [vel[0], vel[1]];
     this.futureAcc = [0, 0];
 
     this.history_toggle = true;
@@ -596,28 +558,40 @@ class ball {
     // if(this.static) return;
     // this.acc = [0,0];
     this.clr_hsl = 0
-    // if(!this.check()) {
-    calcAcc(this, i, apply);
-    // }
-    // console.log(a1, v1, a2, v2)
+    if (this.gravIdx >= 0 && this.gravIdx < balls.length) {
+      // Only gravitate toward the single target body (no array allocations)
+      const target = balls[this.gravIdx];
+      if (!target.static) {
+        const dx = apply ? target.pos[0] - this.pos[0] : target.futurePos[0] - this.futurePos[0];
+        const dy = apply ? target.pos[1] - this.pos[1] : target.futurePos[1] - this.futurePos[1];
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const inv_dist = 1 / Math.max(dist, 0);
+        const force = g * target.mass * inv_dist * inv_dist * inv_dist;
+        const ax = dx * force;
+        const ay = dy * force;
+        if (!apply) {
+          this.futureVel[0] += ax;
+          this.futureVel[1] += ay;
+        } else {
+          this.vel[0] += ax * dt;
+          this.vel[1] += ay * dt;
+        }
+      }
+    } else {
+      calcAcc(this, i, apply);
+    }
 
     if (!apply) {
-      // If not apply, then predict
-      this.futurePos = addVec(mulVector(this.futureVel, [dt, dt]), this.futurePos)
-      if (frame % Math.floor(Math.max(predict_slide.state/100_000, 10)) == 0) this.futureHist.push(this.futurePos);
+      this.futurePos[0] += this.futureVel[0] * dt;
+      this.futurePos[1] += this.futureVel[1] * dt;
+      if (frame % Math.floor(Math.max(predict_slide.state/100_000, 10)) == 0) this.futureHist.push([this.futurePos[0], this.futurePos[1]]);
       return
     } else {
-      this.pos = addVec(mulVector(this.vel, [dt, dt]), this.pos);
+      this.pos[0] += this.vel[0] * dt;
+      this.pos[1] += this.vel[1] * dt;
     }
     
-    // this.vel = addVec(this.acc, this.vel)
-
-    // this.pos[0] = parseFloat(this.pos[0].toPrecision(15))
-    // this.pos[1] = parseFloat(this.pos[1].toPrecision(15))
-    
-    // if (frame_count % 10 == 0) {
-      this.history.push(this.pos);
-    // }
+    this.history.push(this.pos);
 
     if (this.history.length > history_length) {
       this.history.shift();
@@ -1037,6 +1011,7 @@ class ball {
       if (this.history.length > 0) {
         ctx.beginPath();
         ctx.lineWidth = 2.5*1/scale;
+        const step = Math.max(1, parseInt(.0001/scale));
         if (isLocked == true && balls[lockedBallIndex].history.length > 0 && relative_trajectories.state) {
           ctx.moveTo(
             this.history[0][0] - balls[lockedBallIndex].history[0][0] + (balls[lockedBallIndex].pos[0]),
@@ -1046,8 +1021,7 @@ class ball {
           ctx.moveTo(this.history[0][0],this.history[0][1])
         }
 
-        for (let i = 1; i < this.history.length; i+=Math.max(1,parseInt(.0001/scale))) {
-          // if (this.check(this.history[i][0],this.history[i][1])) continue
+        for (let i = 1; i < this.history.length; i+=step) {
           if (isLocked == true && balls[lockedBallIndex].history.length > i && relative_trajectories.state) {
             ctx.lineTo(
               this.history[i][0] - balls[lockedBallIndex].history[i][0] + (balls[lockedBallIndex].pos[0]),
@@ -1076,7 +1050,7 @@ class ball {
 
     if (screenX !== undefined && screenY !== undefined && screenR !== undefined) {
 
-      if (scale > 0.0001){
+      if (scale > 0.0001 && this.gravIdx < 0){
         ctx.shadowBlur = 50;
         ctx.shadowColor = this.clr;
       }
@@ -1160,21 +1134,24 @@ class ball {
     // if far
     if (Math.abs(this.pos[0]-originX) >= 1e19 || Math.abs(this.pos[1]-originY) >= 1e19) return
 
-    const {x, y} = worldToScreen(this.pos[0], this.pos[1])
+    const x = (this.pos[0] - originX) * scale + windowWidth / 2;
+    const y = (this.pos[1] - originY) * scale + windowHeight / 2;
     const screenR = this.rad * scale;
-    
+    const tx = x + screenR;
+    const ty = y + screenR / 2;
+
     if (this.static) {
       ImGui.text(
         this.text,
-        ((x+screenR)),
-        ((y+screenR/2)),
+        tx,
+        ty,
         `rgba(255,255,255,${(scale<=1e-1) ? Math.max(0, (1e-17-scale)/(-1e-15)) : 1})`
       )
     } else {
       ImGui.text(
         this.text,
-        ((x+screenR)),
-        ((y+screenR/2)),
+        tx,
+        ty,
         `rgba(255,255,255,${(scale<=1e-6) ? Math.max(0, (1e-7-scale)/(1e-8-1e-6)) : 1})`
       )
     }
@@ -1187,7 +1164,7 @@ class ball {
     if (this.futureHist.length > 0) {
       ctx.beginPath();
       ctx.lineWidth = 2.5*1/scale;
-      
+      const step = Math.max(1, parseInt(.0001/scale));
       if (isLocked == true && balls[lockedBallIndex].futureHist.length > 0 && relative_trajectories.state) {
         ctx.moveTo(
           this.futureHist[0][0] - balls[lockedBallIndex].futureHist[0][0] + (balls[lockedBallIndex].pos[0]),
@@ -1197,10 +1174,7 @@ class ball {
         ctx.moveTo(this.futureHist[0][0],this.futureHist[0][1])
       }
 
-      // ctx.moveTo(this.futureHist[0][0],this.futureHist[0][1])
-
-      for (let i = 1; i < this.futureHist.length; i+=Math.max(1,parseInt(.0001/scale))) {
-
+      for (let i = 1; i < this.futureHist.length; i+=step) {
         if (isLocked == true && balls[lockedBallIndex].futureHist.length > i && relative_trajectories.state) {
           ctx.lineTo(
             this.futureHist[i][0] - balls[lockedBallIndex].futureHist[i][0] + (balls[lockedBallIndex].pos[0]),
@@ -1212,12 +1186,6 @@ class ball {
             this.futureHist[i][1]
           )
         }
-
-        // ctx.lineTo(
-        //   this.futureHist[i][0],
-        //   this.futureHist[i][1]
-        // )
-        
       }
       ctx.stroke()
     }
@@ -1373,56 +1341,72 @@ const camera = { cx: -530, cy: 0, zoom: 10, canvas: { width: c.width, height: c.
 
 console.log("started processing stars")
 // streamStars('named_stars_10k.csv', camera, s => {
-streamStars('named_stars_gaia_dr3_100k.csv', camera, s => {
+// streamStars('hyg_v42.csv', camera, s => {
 
-  // simple brightness -> radius
-  // const rad = Math.max(0.5, 4 - ((s.mag || 10) - 5) * 0.3);
+//   // simple brightness -> radius
+//   // const rad = Math.max(0.5, 4 - ((s.mag || 10) - 5) * 0.3);
 
-  // ctx.globalAlpha = 1 - Math.min(0.9, Math.max(0, (s.d_pc / 1000)));
-  // ctx.arc(s.screenX, s.screenY, rad, 0, Math.PI*2);
+//   // ctx.globalAlpha = 1 - Math.min(0.9, Math.max(0, (s.d_pc / 1000)));
+//   // ctx.arc(s.screenX, s.screenY, rad, 0, Math.PI*2);
   
-  if (!s.screenX || !s.screenY) return;
+//   if (!s.screenX || !s.screenY) return;
 
-  const star = balls[balls.push(new ball(s.screenX * 5e17, s.screenY * 5e17, true, s.mass*sun_mass, [0,0], 695_508e3/10e3, "yellow"))-1];
-  star.text = s.name;
+//   const star = balls[balls.push(new ball(s.screenX * 5e17, s.screenY * 5e17, true, s.mass*sun_mass, [0,0], 695_508e3/10e3, "yellow"))-1];
+//   star.text = s.name;
 
-  balls[spawn(57.91e6/scale_modifer, 2.44e3/scale_modifer, "gray", star, 3.285e23)-1].text = "Mercury";
+//   balls[spawn(57.91e6/scale_modifer, 2.44e3/scale_modifer, "gray", star, 3.285e23)-1].text = "Mercury";
 
-});
+// });
+
+loadStars()
 
 async function loadStars() {
-    // 1. Fetch the file
-    const response = await fetch('hyg_v42.csv');
-    const csvText = await response.text();
+  // 1. Fetch the file
+  const response = await fetch('hyg_v42.csv');
+  const csvText = await response.text();
 
-    // 2. Define "rows" by splitting the text at every new line
-    const rows = csvText.split('\n');
+  // 2. Define "rows" by splitting the text at every new line
+  const rows = csvText.split('\n');
 
-    // 3. Map and Filter (starting at index 1 to skip the header)
-    const starList = rows.slice(1).map(row => {
-        const columns = row.split(',');
-        if (columns.length < 20) return null;
+  // 3. Map and Filter (starting at index 1 to skip the header)
+  const starLimit = 50000;
+  var i = 0;
+  const starList = rows.slice(1).map(row => {
+      const columns = row.split(',');
+      if (columns.length < 20) return null;
 
-        // Helper to strip quotes and extra spaces
-        const clean = (val) => val ? val.replace(/"/g, '').trim() : "";
+      if (i >= starLimit) return;
+      else i++;
 
-        const bf = clean(columns[5]);     // Column F
-        const proper = clean(columns[6]); // Column G
+      // Helper to strip quotes and extra spaces
+      const clean = (val) => val ? val.replace(/"/g, '').trim() : "";
 
-        // If either column is NOT empty
-        if (bf !== "" || proper !== "") {
-            return {
-                name: proper || bf,
-                x: parseFloat(columns[17]), // X coordinate
-                y: parseFloat(columns[18]), // Y coordinate
-                mag: parseFloat(columns[13]) // Magnitude for brightness
-            };
-        }
-        return null;
-    }).filter(star => star !== null); // Remove the empty/unnamed ones
+      const bf = clean(columns[5]);     // Column F
+      const proper = clean(columns[6]); // Column G
 
-    console.log(starList);
-    return starList;
+      // If either column is NOT empty
+      if (bf !== "" || proper !== "") {
+        return {
+          name: proper || bf,
+          x: parseFloat(columns[17]), // X coordinate
+          y: parseFloat(columns[18]), // Y coordinate
+          mag: parseFloat(columns[13]) // Magnitude for brightness
+        };
+      }
+
+      const starIdx = balls.push(new ball(parseFloat(columns[17]) * 5e17, parseFloat(columns[18]) * 5e17, true, sun_mass, [0,0], 695_508e3/10e3, "yellow"));
+      const star = balls[starIdx - 1];
+      star.text = proper || bf;
+
+      const mercIdx = spawn(57.91e6/scale_modifer, 2.44e3/scale_modifer, "gray", star, 3.285e23);
+      balls[mercIdx - 1].text = "Mercury";
+      balls[mercIdx - 1].gravIdx = starIdx - 1; // Only gravitate toward parent star
+
+      return null;
+  }).filter(star => star !== null); // Remove the empty/unnamed ones
+
+  console.log(starList);
+  return starList;
 }
 
 // sun
@@ -1430,45 +1414,144 @@ balls[balls.push(new ball(windowWidth/2, windowHeight/2, true, 1.989e30, [0,0], 
 
 
 // Mercury
-balls[spawn(57.91e6/scale_modifer, 2.44e3/scale_modifer, "gray", balls[0], 3.285e23)-1].text = "Mercury";
+const mercury = spawn(57.91e6/scale_modifer, 2.44e3/scale_modifer, "gray", balls[0], 3.285e23);
+balls[mercury-1].text = "Mercury";
+balls[mercury-1].gravIdx = 0;
 
 // Venus
-balls[spawn(108.2e6/scale_modifer, 6.052e3/scale_modifer, "orange", balls[0], 4.87e24)-1].text = "Venus";
+const venus = spawn(108.2e6/scale_modifer, 6.052e3/scale_modifer, "orange", balls[0], 4.87e24);
+balls[venus-1].text = "Venus";
+balls[venus-1].gravIdx = 0;
 
 // Earth
 const earth = spawn(149.6e6/scale_modifer, 6.378e3/scale_modifer, "green", balls[0], 5.97e24);
 balls[earth-1].text = "Earth";
+balls[earth-1].gravIdx = 0;
   // Earth - Moon
-  balls[spawn(384.4e3/scale_modifer, 1.737e3/scale_modifer, "grey", balls[earth-1], 7.35e22)-1].text = "Moon";
+  const moon = spawn(384.4e3/scale_modifer, 1.737e3/scale_modifer, "grey", balls[earth-1], 7.35e22);
+  balls[moon-1].text = "Moon";
+  balls[moon-1].gravIdx = earth-1;
 
 // Mars
-const mars = spawn(227.9e6/scale_modifer, 3.397e3/scale_modifer, "red", balls[0], 6.42e23)
+const mars = spawn(227.9e6/scale_modifer, 3.397e3/scale_modifer, "red", balls[0], 6.42e23);
 balls[mars-1].text = "Mars";
+balls[mars-1].gravIdx = 0;
   // Mars - Phobos
-  balls[spawn(9.378e3/scale_modifer, 11.1/scale_modifer, "gray", balls[mars-1], 1.065e16)-1].text = "Phobos";
+  const phobos = spawn(9.378e3/scale_modifer, 11.1/scale_modifer, "gray", balls[mars-1], 1.065e16);
+  balls[phobos-1].text = "Phobos";
+  balls[phobos-1].gravIdx = mars-1;
   // Mars - Deimos
-  balls[spawn(23.5e3/scale_modifer, 6.2/scale_modifer, "gray", balls[mars-1], 4.4e15)-1].text = "Deimos";
+  const deimos = spawn(23.5e3/scale_modifer, 6.2/scale_modifer, "gray", balls[mars-1], 4.4e15);
+  balls[deimos-1].text = "Deimos";
+  balls[deimos-1].gravIdx = mars-1;
 
 // Jupiter
-const jupiter = spawn(778.3e6/scale_modifer, 71.492e3/scale_modifer, "brown", balls[0], (1.9e27))
+const jupiter = spawn(778.3e6/scale_modifer, 71.492e3/scale_modifer, "brown", balls[0], (1.9e27));
 balls[jupiter-1].text = "Jupiter";
+balls[jupiter-1].gravIdx = 0;
   // Jupiter - Io
-  balls[spawn(421.7e3/scale_modifer, 1.82e3/scale_modifer, "yellow", balls[jupiter-1], (8.93e22))-1].text = "Io";
+  const io = spawn(421.7e3/scale_modifer, 1.82e3/scale_modifer, "yellow", balls[jupiter-1], (8.93e22));
+  balls[io-1].text = "Io";
+  balls[io-1].gravIdx = jupiter-1;
   // Jupiter - Europa
-  balls[spawn(670.9e3/scale_modifer, 1.56e3/scale_modifer, "white", balls[jupiter-1], 4.8e22)-1].text = "Europa";
+  const europa = spawn(670.9e3/scale_modifer, 1.56e3/scale_modifer, "white", balls[jupiter-1], 4.8e22);
+  balls[europa-1].text = "Europa";
+  balls[europa-1].gravIdx = jupiter-1;
   // Jupiter - Ganymede
-  balls[spawn(1_070e3/scale_modifer, 2.63e3/scale_modifer, "gray", balls[jupiter-1], 1.4819e23)-1].text = "Ganymede";
+  const ganymede = spawn(1_070e3/scale_modifer, 2.63e3/scale_modifer, "gray", balls[jupiter-1], 1.4819e23);
+  balls[ganymede-1].text = "Ganymede";
+  balls[ganymede-1].gravIdx = jupiter-1;
   // Jupiter - Callisto
-  balls[spawn(1_882e3/scale_modifer, 2.41e3/scale_modifer, "gray", balls[jupiter-1], 1.0759e23)-1].text = "Callisto";
+  const callisto = spawn(1_882e3/scale_modifer, 2.41e3/scale_modifer, "gray", balls[jupiter-1], 1.0759e23);
+  balls[callisto-1].text = "Callisto";
+  balls[callisto-1].gravIdx = jupiter-1;
 
 // Saturn
-balls[spawn(1_429e6/scale_modifer, 60.268e3/scale_modifer, "yellow", balls[0], 5.68e26)-1].text = "Saturn";
+const saturn = spawn(1_429e6/scale_modifer, 60.268e3/scale_modifer, "yellow", balls[0], 5.68e26);
+balls[saturn-1].text = "Saturn";
+balls[saturn-1].gravIdx = 0;
 
 // Uranus
-balls[spawn(2_871e6/scale_modifer, 25.559e3/scale_modifer, "cyan", balls[0], 8.68e25)-1].text = "Uranus";
+const uranus = spawn(2_871e6/scale_modifer, 25.559e3/scale_modifer, "cyan", balls[0], 8.68e25);
+balls[uranus-1].text = "Uranus";
+balls[uranus-1].gravIdx = 0;
 
 // Neptune
-balls[spawn(4_498e6/scale_modifer, 24.764e3/scale_modifer, "lightblue", balls[0], 1.02e26)-1].text = "Neptune";
+const neptune = spawn(4_498e6/scale_modifer, 24.764e3/scale_modifer, "lightblue", balls[0], 1.02e26);
+balls[neptune-1].text = "Neptune";
+balls[neptune-1].gravIdx = 0;
+
+// -----------------------------
+// Asteroid Belt
+// -----------------------------
+const moon_mass = 7.35e22;
+const belt_total_mass = moon_mass * 0.03; // 3% Moon mass ~2.205e21 kg
+const four_largest_mass = belt_total_mass * 0.60; // ~1.323e21 kg
+const minor_belt_mass = belt_total_mass * 0.40; // ~8.82e20 kg
+const sun_ball = balls[0];
+
+function spawnAsteroid(distKm, radiusKm, mass, name, color) {
+  const grav = Math.sqrt((g * sun_ball.mass) / distKm);
+  const angle = Math.random() * TWO_PI;
+  const b = new ball(
+    Math.cos(angle) * distKm + sun_ball.pos[0],
+    Math.sin(angle) * distKm + sun_ball.pos[1],
+    false,
+    mass,
+    [Math.sin(angle) * grav, -Math.cos(angle) * grav],
+    radiusKm,
+    color,
+    grav
+  );
+  b.text = name;
+  b.gravIdx = 0; // Only gravitate toward Sun (index 0)
+  balls.push(b);
+}
+
+// Four largest asteroids (60% of belt mass, scaled proportionally to real ratios)
+// Real masses: Ceres 9.39e20, Vesta 2.59e20, Pallas 2.04e20, Hygiea 7.72e19
+// Total real four: ~1.48e21. Scale to four_largest_mass.
+const realFourTotal = 9.39e20 + 2.59e20 + 2.04e20 + 7.72e19;
+spawnAsteroid(4.13e8, 475, 9.39e20 / realFourTotal * four_largest_mass, "Ceres", "#8B8680");
+spawnAsteroid(3.54e8, 262.5, 2.59e20 / realFourTotal * four_largest_mass, "Vesta", "#7A756E");
+spawnAsteroid(4.14e8, 272, 2.04e20 / realFourTotal * four_largest_mass, "Pallas", "#6D6860");
+spawnAsteroid(4.69e8, 217.5, 7.72e19 / realFourTotal * four_largest_mass, "Hygiea", "#807B74");
+
+// Minor asteroids: ~1500 objects distributed 2.2-3.2 AU (329e6 - 478e6 km)
+const asteroidCount = 1500;
+const au = 149.6e6; // 1 AU in km
+const beltInner = 2.2 * au;
+const beltOuter = 3.2 * au;
+const beltThickness = 0.15 * au; // ~0.15 AU vertical thickness for the torus
+const massPerMinor = minor_belt_mass / asteroidCount;
+
+// Pre-generate positions so we can skip drawing far ones efficiently
+const asteroidColors = ["#7A7067", "#8B8077", "#6B635B", "#92877A", "#5C554D", "#8A7F73", "#736B62", "#A09588"];
+
+// for (let i = 0; i < asteroidCount; i++) {
+//   // Distance: biased toward inner belt (more asteroids near 2.2 AU)
+//   const r = Math.pow(Math.random(), 0.7) * (beltOuter - beltInner) + beltInner;
+//   const angle = Math.random() * TWO_PI;
+//   // Slight vertical offset for torus thickness
+//   const yOffset = (Math.random() - 0.5) * 2 * beltThickness;
+//   const grav = Math.sqrt((g * sun_ball.mass) / r);
+//   const radius = 5 + Math.random() * 45; // 5-50 km visual radius
+//   const color = asteroidColors[Math.floor(Math.random() * asteroidColors.length)];
+
+//   const b = new ball(
+//     Math.cos(angle) * r + sun_ball.pos[0],
+//     Math.sin(angle) * r + yOffset + sun_ball.pos[1],
+//     false,
+//     massPerMinor,
+//     [Math.sin(angle) * grav, -Math.cos(angle) * grav],
+//     radius,
+//     color,
+//     grav
+//   );
+//   b.gravIdx = 0; // Sun only
+//   b.text = ""; // No label for minor asteroids
+//   balls.push(b);
+// }
 
 function predictFunc() {
   // Pause the simulation to allow orbit prediction
@@ -1483,10 +1566,10 @@ function predictFunc() {
 
   for (var i = 0; i < balls.length; i++) {
     const ball = balls[i];
-    // Reset the balls future params for orbital prediction
-    ball.futurePos = ball.pos;
-    ball.futureVel = ball.vel;
-    ball.futureAcc = ball.acc;
+    // Reset the balls future params for orbital prediction (deep copy to avoid shared references)
+    ball.futurePos = [ball.pos[0], ball.pos[1]];
+    ball.futureVel = [ball.vel[0], ball.vel[1]];
+    ball.futureAcc = ball.acc ? [ball.acc[0], ball.acc[1]] : [0, 0];
 
     ball.futureHist = [];
   }
@@ -1523,6 +1606,16 @@ function recenterWorld(threshold = 1e5) {
   originX = 0;
   originY = 0;
 }
+
+// Optimize star drawing at small scales
+const starCanvas = document.createElement('canvas');
+starCanvas.width = 4;
+starCanvas.height = 4;
+const sCtx = starCanvas.getContext('2d');
+sCtx.fillStyle = "yellow";
+sCtx.beginPath();
+sCtx.arc(2, 2, 1, 0, Math.PI * 2);
+sCtx.fill();
 
 // imgui.width = 350;
 function animate(t) {
@@ -1575,27 +1668,60 @@ function animate(t) {
   if (scale <= 0.0000001) pause = true;
 
   if ((pred_toggle.state && frame_count % 10 == 0)) predictFunc()
-  
+
+  // Precompute screen transform constants
+  const cx = windowWidth / 2;
+  const cy = windowHeight / 2;
+  const s = scale;
+
+  const sun = { pos: [0, 0] };
+
+  // Batch-draw all static stars in one pass
+  ctx.fillStyle = "yellow";
   for (var i = 0; i < balls.length; i++) {
     const ball = balls[i];
-    
-    ball.history_toggle = history.state
-    
-    if ((!pause && scale > 0.0000001) && (Math.abs(ball.pos[0]) < 1e12 && Math.abs(ball.pos[1]) < 1e12)) ball.update(i, true);
+    if (!ball.static) continue;
 
-    const sun = { pos: [ 0, 0 ] }; // normalized direction to your star (x,y,z)
+    const sx = (ball.pos[0] - originX) * s + cx;
+    const sy = (ball.pos[1] - originY) * s + cy;
+    if (sx < 0 || sx > windowWidth || sy < 0 || sy > windowHeight) continue;
 
-    const screen = worldToScreen(ball.pos[0], ball.pos[1]);
-    const screenR = ball.rad * scale;
+    if (s >= 2e-7) {
+      ctx.beginPath();
+      ctx.moveTo(sx + 1, sy);
+      ctx.arc(sx, sy, 1, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.drawImage(starCanvas, sx, sy);
+    }
+  }
+  // ctx.fill();
 
-    ball.draw({ ctx, time: t * 0.1, sun, screenX: screen.x, screenY: screen.y, screenR });
+  for (var i = 0; i < balls.length; i++) {
+    const ball = balls[i];
+    if (ball.static) continue;
+
+    const sx = (ball.pos[0] - originX) * s + cx;
+    const sy = (ball.pos[1] - originY) * s + cy;
+    const sr = ball.rad * s;
+
+    // Skip off-screen bodies early
+    if (sx < -50 || sx > windowWidth + 50 || sy < -50 || sy > windowHeight + 50) {
+      if (ball.gravIdx >= 0) continue;
+    }
+
+    // Skip n-body update
+    if (!pause && s > 0.0000001 && Math.abs(ball.pos[0]) < 1e12 && Math.abs(ball.pos[1]) < 1e12) {
+      ball.update(i, true);
+    }
+
+    ball.draw({ ctx, time: t * 0.1, sun, screenX: sx, screenY: sy, screenR: sr });
 
     if (predicted > 0 && pred_history.state) {
       ball.drawPred();
     }
 
     ball.velocity_v = earth_v_checkbox.state
-    // ball.acc_v = earth_a_checkbox.state
   }
 
   recenterWorld();
@@ -1603,20 +1729,23 @@ function animate(t) {
   if (earth_a_checkbox.state) {
     for (var i = 0; i < balls.length; i++) {
       const ball = balls[i];
-      // if (scale <= 0.1) {
-        if (!ball.text) {
-          ImGui.text(
-            `Object #${i+1}`,
-            ((ball.pos[0]+ball.rad)*scale+originX),
-            ((ball.pos[1]+ball.rad/2)*scale+originY),
-            "18px sans-serif"
-          )
-        } else {
-          ball.drawText()
-        }
-        // }
+      if (ball.static) continue;
+      if (ball.gravIdx === 0 && !ball.text) continue;
+      const x = (ball.pos[0] - originX) * s + cx;
+      const y = (ball.pos[1] - originY) * s + cy;
+      const screenR = ball.rad * s;
+      if (ball.text) {
+        ball.drawText()
+      } else {
+        ImGui.text(
+          `Object #${i+1}`,
+          x + screenR,
+          y + screenR / 2,
+          "white"
+        )
       }
     }
+  }
     
   ctx.restore();
   
