@@ -64,10 +64,10 @@ let fps = imgui.staticText("FPS: 0")
 
 imgui.staticText("UI")
 let history = imgui.checkbox("Show History (Reduces Performance)", false);
-let pred_history = imgui.checkbox("Show Predictions (Reduces Performance)", true);
+let pred_history = imgui.checkbox("Show Predictions (Reduces Performance)", false);
 
 let earth_v_checkbox = imgui.checkbox("Show Velocities", false);
-let earth_a_checkbox = imgui.checkbox("Show Labels", true);
+let earth_a_checkbox = imgui.checkbox("Show Labels (Reduces Performance)", true);
 
 let relative_trajectories = imgui.checkbox("Draw Relative Trajectories", true);
 
@@ -475,37 +475,37 @@ class ball {
     // this.history_length = 5000
 
     // visual options
-    this.quality = options.quality || 1.0; // 0.5 to 1.5
-    this.seed = options.seed || Math.floor(Math.random() * 100000);
-    this.ring = { 
-      enabled: !!options.rings || false, 
-      inner: 1.5, outer: 2.3, 
-      tilt: (options.ringTilt ?? 0.4), 
-      color: options.ringColor || 'rgba(200,180,140,0.6)', 
-      speed: options.ringSpeed || 0.02 
-    };
-    this.atmosphere = { 
-      color: options.atmosColor || 'rgba(70,150,255,0.15)', 
-      width: options.atmosWidth || 0.12 
-    };
-    this.clouds = { 
-      enabled: (options.clouds ?? true), 
-      speed: options.cloudSpeed || 0.02, 
-      opacity: (options.cloudOpacity ?? 0.45) 
-    };
+    // this.quality = options.quality || 1.0; // 0.5 to 1.5
+    // this.seed = options.seed || Math.floor(Math.random() * 100000);
+    // this.ring = { 
+    //   enabled: !!options.rings || false, 
+    //   inner: 1.5, outer: 2.3, 
+    //   tilt: (options.ringTilt ?? 0.4), 
+    //   color: options.ringColor || 'rgba(200,180,140,0.6)', 
+    //   speed: options.ringSpeed || 0.02 
+    // };
+    // this.atmosphere = { 
+    //   color: options.atmosColor || 'rgba(70,150,255,0.15)', 
+    //   width: options.atmosWidth || 0.12 
+    // };
+    // this.clouds = { 
+    //   enabled: (options.clouds ?? true), 
+    //   speed: options.cloudSpeed || 0.02, 
+    //   opacity: (options.cloudOpacity ?? 0.45) 
+    // };
 
-    // offscreen canvases for layers
-    this.texCanvas = null;      // base terrain + night lights + baked lighting (static)
-    this.cloudCanvas = null;    // cloud texture (reused and offset per-frame)
-    this.ringCanvas = null;     // ring pre-rendered
-    this._dirtyTexture = true;  // regenerate when radius/seed change
-    this._dirtyRings = true;
+    // // offscreen canvases for layers
+    // this.texCanvas = null;      // base terrain + night lights + baked lighting (static)
+    // this.cloudCanvas = null;    // cloud texture (reused and offset per-frame)
+    // this.ringCanvas = null;     // ring pre-rendered
+    // this._dirtyTexture = true;  // regenerate when radius/seed change
+    // this._dirtyRings = true;
 
-    // store timestamp for animations
-    this._time = 0;
+    // // store timestamp for animations
+    // this._time = 0;
 
-    // starfield shared
-    BallShared.makeStarfield(1024, 1500);
+    // // starfield shared
+    // BallShared.makeStarfield(1024, 1500);
   }
   
   check(x,y) {
@@ -1131,30 +1131,42 @@ class ball {
 
   drawText() {
     if (!this.static && scale < 0.0000001) return;
-    // if far
-    if (Math.abs(this.pos[0]-originX) >= 1e19 || Math.abs(this.pos[1]-originY) >= 1e19) return
+    
+    // 1. Rough world-space cull
+    if (Math.abs(this.pos[0] - originX) >= 1e19 || Math.abs(this.pos[1] - originY) >= 1e19) return;
 
+    // 2. Calculate screen position
     const x = (this.pos[0] - originX) * scale + windowWidth / 2;
     const y = (this.pos[1] - originY) * scale + windowHeight / 2;
     const screenR = this.rad * scale;
     const tx = x + screenR;
     const ty = y + screenR / 2;
 
-    if (this.static) {
-      ImGui.text(
-        this.text,
-        tx,
-        ty,
-        `rgba(255,255,255,${(scale<=1e-1) ? Math.max(0, (1e-17-scale)/(-1e-15)) : 1})`
-      )
-    } else {
-      ImGui.text(
-        this.text,
-        tx,
-        ty,
-        `rgba(255,255,255,${(scale<=1e-6) ? Math.max(0, (1e-7-scale)/(1e-8-1e-6)) : 1})`
-      )
+    // 3. Viewport Culling (CRITICAL: Skip if off-screen)
+    if (tx < -100 || tx > windowWidth + 100 || ty < -20 || ty > windowHeight + 20) return;
+
+    // 4. Quantize alpha to prevent unique strings (round to 2 decimal places)
+    let alpha = 1;
+    const fadeStart = 1e-15; // Scale where text is 100% visible (1.0)
+    const fadeEnd   = 1e-26; // Scale where text is 0% visible (0.0)
+
+    if (scale <= fadeStart) {
+      // Linear interpolation formula that cleanly maps your range from 1 to 0
+      alpha = Math.max(0, Math.min(1, (fadeEnd - scale) / (fadeEnd - fadeStart)));
     }
+
+    if (!this.static) {
+      if (scale <= 1e-6) alpha = Math.max(0, (1e-7 - scale) / (1e-8 - 1e-6));
+    }
+    
+    // Fast truncation to 2 decimal places (e.g., 0.85 instead of 0.8539281)
+    const fixedAlpha = (alpha * 100 | 0) / 100; 
+
+    // Now stars with similar alphas will share the exact same string, 
+    // allowing our ImGui.text() optimization to actually skip state changes!
+    const colorString = `rgba(255,255,255,${fixedAlpha})`;
+
+    ImGui.text(this.text, tx, ty, colorString);
   }
 
   drawPred() {
@@ -1371,38 +1383,38 @@ async function loadStars() {
   // 3. Map and Filter (starting at index 1 to skip the header)
   const starLimit = 50000;
   var i = 0;
-  const starList = rows.slice(1).map(row => {
-      const columns = row.split(',');
-      if (columns.length < 20) return null;
+  const starList = rows.slice(2).map(row => {
+    const columns = row.split(',');
+    if (columns.length < 20) return null;
 
-      if (i >= starLimit) return;
-      else i++;
+    // if (i >= starLimit) return;
+    // else i++;
 
-      // Helper to strip quotes and extra spaces
-      const clean = (val) => val ? val.replace(/"/g, '').trim() : "";
+    // Helper to strip quotes and extra spaces
+    const clean = (val) => val ? val.replace(/"/g, '').trim() : "";
 
-      const bf = clean(columns[5]);     // Column F
-      const proper = clean(columns[6]); // Column G
+    const bf = clean(columns[5]);     // Column F
+    const proper = clean(columns[6]); // Column G
 
-      // If either column is NOT empty
-      if (bf !== "" || proper !== "") {
-        return {
-          name: proper || bf,
-          x: parseFloat(columns[17]), // X coordinate
-          y: parseFloat(columns[18]), // Y coordinate
-          mag: parseFloat(columns[13]) // Magnitude for brightness
-        };
-      }
+    // If either column is NOT empty
+    // if (bf !== "" || proper !== "") {
+    //   return {
+    //     name: proper || bf,
+    //     x: parseFloat(columns[17]), // X coordinate
+    //     y: parseFloat(columns[18]), // Y coordinate
+    //     mag: parseFloat(columns[13]) // Magnitude for brightness
+    //   };
+    // }
 
-      const starIdx = balls.push(new ball(parseFloat(columns[17]) * 5e17, parseFloat(columns[18]) * 5e17, true, sun_mass, [0,0], 695_508e3/10e3, "yellow"));
-      const star = balls[starIdx - 1];
-      star.text = proper || bf;
+    const starIdx = balls.push(new ball(parseFloat(columns[17]) * 8.7e13, parseFloat(columns[18]) * 8.7e13, true, sun_mass, [0,0], 695_508e3/10e3, "yellow"));
+    const star = balls[starIdx - 1];
+    star.text = proper || bf;
 
-      const mercIdx = spawn(57.91e6/scale_modifer, 2.44e3/scale_modifer, "gray", star, 3.285e23);
-      balls[mercIdx - 1].text = "Mercury";
-      balls[mercIdx - 1].gravIdx = starIdx - 1; // Only gravitate toward parent star
+    const mercIdx = spawn(57.91e6/scale_modifer, 2.44e3/scale_modifer, "gray", star, 3.285e23);
+    balls[mercIdx - 1].text = "Mercury";
+    balls[mercIdx - 1].gravIdx = starIdx - 1; // Only gravitate toward parent star
 
-      return null;
+    return null;
   }).filter(star => star !== null); // Remove the empty/unnamed ones
 
   console.log(starList);
@@ -1528,30 +1540,30 @@ const massPerMinor = minor_belt_mass / asteroidCount;
 // Pre-generate positions so we can skip drawing far ones efficiently
 const asteroidColors = ["#7A7067", "#8B8077", "#6B635B", "#92877A", "#5C554D", "#8A7F73", "#736B62", "#A09588"];
 
-// for (let i = 0; i < asteroidCount; i++) {
-//   // Distance: biased toward inner belt (more asteroids near 2.2 AU)
-//   const r = Math.pow(Math.random(), 0.7) * (beltOuter - beltInner) + beltInner;
-//   const angle = Math.random() * TWO_PI;
-//   // Slight vertical offset for torus thickness
-//   const yOffset = (Math.random() - 0.5) * 2 * beltThickness;
-//   const grav = Math.sqrt((g * sun_ball.mass) / r);
-//   const radius = 5 + Math.random() * 45; // 5-50 km visual radius
-//   const color = asteroidColors[Math.floor(Math.random() * asteroidColors.length)];
+for (let i = 0; i < asteroidCount; i++) {
+  // Distance: biased toward inner belt (more asteroids near 2.2 AU)
+  const r = Math.pow(Math.random(), 0.7) * (beltOuter - beltInner) + beltInner;
+  const angle = Math.random() * TWO_PI;
+  // Slight vertical offset for torus thickness
+  const yOffset = (Math.random() - 0.5) * 2 * beltThickness;
+  const grav = Math.sqrt((g * sun_ball.mass) / r);
+  const radius = 5 + Math.random() * 45; // 5-50 km visual radius
+  const color = asteroidColors[Math.floor(Math.random() * asteroidColors.length)];
 
-//   const b = new ball(
-//     Math.cos(angle) * r + sun_ball.pos[0],
-//     Math.sin(angle) * r + yOffset + sun_ball.pos[1],
-//     false,
-//     massPerMinor,
-//     [Math.sin(angle) * grav, -Math.cos(angle) * grav],
-//     radius,
-//     color,
-//     grav
-//   );
-//   b.gravIdx = 0; // Sun only
-//   b.text = ""; // No label for minor asteroids
-//   balls.push(b);
-// }
+  const b = new ball(
+    Math.cos(angle) * r + sun_ball.pos[0],
+    Math.sin(angle) * r + yOffset + sun_ball.pos[1],
+    false,
+    massPerMinor,
+    [Math.sin(angle) * grav, -Math.cos(angle) * grav],
+    radius,
+    color,
+    grav
+  );
+  b.gravIdx = 0; // Sun only
+  b.text = ""; // No label for minor asteroids
+  balls.push(b);
+}
 
 function predictFunc() {
   // Pause the simulation to allow orbit prediction
@@ -1617,12 +1629,22 @@ sCtx.beginPath();
 sCtx.arc(2, 2, 1, 0, Math.PI * 2);
 sCtx.fill();
 
+// Hash-grid to limit each cell to like 100 stars
+const cellScale = 6; // A grid cell is 3x3 screen pixels. Increase this to thin out stars more aggressively.
+const gridWidth = Math.ceil(c.width / cellScale);
+const gridHeight = Math.ceil(c.height / cellScale);
+let occupiedGrid = new Uint8Array(gridWidth * gridHeight);
+
+BallShared.makeStarfield(1024, 1500);
+
 // imgui.width = 350;
 function animate(t) {
   // ctx.fillStyle = 'rgba(0,0,0,0.1)'
 	// ctx.fillRect(0, 0, windowWidth, windowHeight);
   ctx.save();
 	ctx.clearRect(0, 0, windowWidth, windowHeight);
+
+  occupiedGrid.fill(0);
   
   // drawEquipotential();
 
@@ -1631,7 +1653,7 @@ function animate(t) {
   ctx.save();
   ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = 0.20;
-  ctx.drawImage(star, 0, 0, ctx.canvas.width, ctx.canvas.height);
+  ctx.drawImage(star, 0, 0, c.width, c.height);
   ctx.restore();
 
   dt = dt_slider.state;
@@ -1686,14 +1708,23 @@ function animate(t) {
     const sy = (ball.pos[1] - originY) * s + cy;
     if (sx < 0 || sx > windowWidth || sy < 0 || sy > windowHeight) continue;
 
+    const cellX = (sx / cellScale) | 0;
+    const cellY = (sy / cellScale) | 0;
+    const gridIndex = cellY * gridWidth + cellX;
+    
+    if (occupiedGrid[gridIndex] < 2) {
+      occupiedGrid[gridIndex]++; // Mark cell as occupied
+    } else continue;
+
     if (s >= 2e-7) {
       ctx.beginPath();
       ctx.moveTo(sx + 1, sy);
-      ctx.arc(sx, sy, 1, 0, Math.PI * 2);
+      ctx.arc(sx, sy, s*ball.rad, 0, Math.PI * 2);
       ctx.fill();
     } else {
       ctx.drawImage(starCanvas, sx, sy);
     }
+    if (earth_a_checkbox.state) ball.drawText()
   }
   // ctx.fill();
 
